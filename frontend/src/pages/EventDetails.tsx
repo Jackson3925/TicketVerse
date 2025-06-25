@@ -1,47 +1,95 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { eventsAPI } from '@/lib/api';
+import { useRealtimeEventAvailability } from '@/hooks/useRealtimeEvents';
+import { useAuth } from '@/hooks/useAuth';
+import Navigation from "@/components/Navigation";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Calendar, MapPin, Ticket, Users, Clock, ArrowLeft, Share2, Heart, Wallet } from "lucide-react";
 import TicketPurchaseDialog from "@/components/TicketPurchaseDialog";
+import type { Event } from '@/lib/supabase';
+
+type EventWithRelations = Event & {
+  artists?: { id: string; name: string; image_url?: string; verified?: boolean; description?: string }
+  venues?: { 
+    id: string; 
+    name: string; 
+    address: string; 
+    city: string; 
+    state?: string; 
+    country: string; 
+    capacity?: number; 
+    parking_available?: boolean; 
+    accessibility_features?: string[] 
+  }
+  seat_categories?: Array<{ 
+    id: string; 
+    name: string; 
+    price: number; 
+    capacity: number; 
+    sold: number; 
+    color?: string; 
+    nft_image_url?: string 
+  }>
+}
 
 const EventDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const [isPurchaseDialogOpen, setIsPurchaseDialogOpen] = useState(false);
+  const [event, setEvent] = useState<EventWithRelations | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock data - in a real app, this would come from an API based on the ID
-  const event = {
-    id: 1,
-    title: "Electric Nights Festival",
-    artist: "Various Artists",
-    date: "2024-07-15",
-    time: "19:00",
-    venue: "Madison Square Garden",
-    location: "New York, NY",
-    price: "0.25 ETH",
-    image: "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800&h=600&fit=crop",
-    category: "Electronic",
-    ticketsLeft: 156,
-    totalTickets: 500,
-    description: "Get ready for the most electrifying night of electronic music! Electric Nights Festival brings together the world's top DJs and producers for an unforgettable experience. From progressive house to techno, this festival will take you on a sonic journey through the best of electronic music.",
-    lineup: ["DJ Snake", "Deadmau5", "Tiësto", "Martin Garrix", "Skrillex"],
-    venue_details: {
-      address: "4 Pennsylvania Plaza, New York, NY 10001",
-      capacity: "20,789",
-      parking: "Available on-site",
-      accessibility: "Wheelchair accessible"
-    },
-    event_info: {
-      doors_open: "18:00",
-      age_restriction: "18+",
-      dress_code: "Casual",
-      duration: "6 hours"
+  // Real-time availability updates
+  const { availability } = useRealtimeEventAvailability(id || '');
+
+  // Load event data
+  useEffect(() => {
+    const loadEventData = async () => {
+      if (!id) {
+        setError('Event ID not provided');
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        const eventData = await eventsAPI.getEventById(id);
+        
+        if (!eventData) {
+          setError('Event not found');
+        } else {
+          setEvent(eventData);
+          setError(null);
+        }
+      } catch (err) {
+        console.error('Error loading event:', err);
+        setError('Failed to load event details. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadEventData();
+  }, [id]);
+
+  // Update event with real-time availability
+  useEffect(() => {
+    if (availability && event) {
+      setEvent(prev => prev ? {
+        ...prev,
+        total_tickets: availability.total_tickets,
+        sold_tickets: availability.total_tickets - availability.remaining
+      } : null);
     }
-  };
+  }, [availability, event]);
 
+  // Utility functions
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', {
@@ -52,38 +100,93 @@ const EventDetails = () => {
     });
   };
 
-  const soldPercentage = ((event.totalTickets - event.ticketsLeft) / event.totalTickets) * 100;
+  const getMinPrice = () => {
+    if (!event?.seat_categories || event.seat_categories.length === 0) {
+      return 'TBA'
+    }
+    const minPrice = Math.min(...event.seat_categories.map(cat => cat.price))
+    return `$${minPrice}`
+  };
+
+  const getTicketsLeft = () => {
+    if (!event?.total_tickets || event.sold_tickets === undefined) {
+      return 0
+    }
+    return event.total_tickets - event.sold_tickets
+  };
+
+  const getSoldPercentage = () => {
+    if (!event?.total_tickets || event.sold_tickets === undefined) {
+      return 0
+    }
+    return (event.sold_tickets / event.total_tickets) * 100
+  };
+
+  const isSoldOut = () => {
+    return getTicketsLeft() <= 0
+  };
+
+  const handlePurchase = () => {
+    if (!isAuthenticated) {
+      navigate('/auth?returnTo=' + encodeURIComponent(window.location.pathname));
+      return;
+    }
+    setIsPurchaseDialogOpen(true);
+  };
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
+        <Navigation />
+        <div className="container mx-auto px-4 py-8">
+          <div className="text-center py-16">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-muted-foreground">Loading event details...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error || !event) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
+        <Navigation />
+        <div className="container mx-auto px-4 py-8">
+          <div className="text-center py-16">
+            <h2 className="text-2xl font-bold text-destructive mb-4">
+              {error || 'Event not found'}
+            </h2>
+            <p className="text-muted-foreground mb-4">
+              {error || 'The event you\'re looking for doesn\'t exist or has been removed.'}
+            </p>
+            <div className="space-x-2">
+              <Button onClick={() => navigate('/browse-events')}>
+                Browse Events
+              </Button>
+              <Button variant="outline" onClick={() => window.location.reload()}>
+                Try Again
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
-      {/* Navigation */}
-      <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-            <div className="flex items-center space-x-2">
-              <Ticket className="h-6 w-6 text-primary" />
-              <span className="text-xl font-bold">TicketVerse</span>
-            </div>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Button variant="outline" size="sm">
-              <Share2 className="h-4 w-4 mr-2" />
-              Share
-            </Button>
-            <Button variant="outline" size="sm">
-              <Heart className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" onClick={() => navigate('/my-tickets')}>
-              <Wallet className="h-4 w-4 mr-2" />
-              My Tickets
-            </Button>
-          </div>
-        </div>
-      </nav>
+      <Navigation />
+      
+      {/* Back Button */}
+      <div className="container mx-auto px-4 pt-4">
+        <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back
+        </Button>
+      </div>
 
       <div className="container mx-auto px-4 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -92,7 +195,7 @@ const EventDetails = () => {
             {/* Hero Image */}
             <div className="relative rounded-xl overflow-hidden">
               <img 
-                src={event.image} 
+                src={event.poster_image_url || '/placeholder.svg'} 
                 alt={event.title}
                 className="w-full h-96 object-cover"
               />
@@ -101,11 +204,21 @@ const EventDetails = () => {
                 {event.category}
               </Badge>
               <div className="absolute top-4 right-4 bg-background/90 backdrop-blur px-2 py-1 rounded-full text-sm font-semibold">
-                {event.price}
+                {getMinPrice()}
               </div>
+              {isSoldOut() && (
+                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                  <span className="text-white text-3xl font-bold">SOLD OUT</span>
+                </div>
+              )}
               <div className="absolute bottom-6 left-6 right-6 text-white">
                 <h1 className="text-4xl font-bold mb-2">{event.title}</h1>
-                <p className="text-xl opacity-90">{event.artist}</p>
+                <p className="text-xl opacity-90 flex items-center">
+                  {event.artists?.name}
+                  {event.artists?.verified && (
+                    <span className="ml-2 text-blue-400">✓</span>
+                  )}
+                </p>
               </div>
             </div>
 
@@ -133,14 +246,20 @@ const EventDetails = () => {
                   <div className="flex items-center space-x-3">
                     <MapPin className="h-5 w-5 text-primary" />
                     <div>
-                      <p className="font-medium">{event.venue}</p>
-                      <p className="text-sm text-muted-foreground">{event.location}</p>
+                      <p className="font-medium">{event.venues?.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {event.venues?.city}
+                        {event.venues?.state && `, ${event.venues.state}`}
+                        {event.venues?.country && `, ${event.venues.country}`}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center space-x-3">
                     <Users className="h-5 w-5 text-primary" />
                     <div>
-                      <p className="font-medium">{event.venue_details.capacity} capacity</p>
+                      <p className="font-medium">
+                        {event.venues?.capacity ? `${event.venues.capacity.toLocaleString()} capacity` : 'Capacity TBA'}
+                      </p>
                       <p className="text-sm text-muted-foreground">Venue Size</p>
                     </div>
                   </div>
@@ -155,21 +274,47 @@ const EventDetails = () => {
               </CardHeader>
               <CardContent>
                 <p className="text-muted-foreground leading-relaxed mb-6">
-                  {event.description}
+                  {event.description || 'Event description coming soon...'}
                 </p>
                 
-                <Separator className="my-6" />
-                
-                <div>
-                  <h3 className="text-lg font-semibold mb-3">Lineup</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {event.lineup.map((artist, index) => (
-                      <Badge key={index} variant="secondary" className="px-3 py-1">
-                        {artist}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
+                {event.artists?.description && (
+                  <>
+                    <Separator className="my-6" />
+                    <div>
+                      <h3 className="text-lg font-semibold mb-3">About the Artist</h3>
+                      <p className="text-muted-foreground leading-relaxed">
+                        {event.artists.description}
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                {event.seat_categories && event.seat_categories.length > 0 && (
+                  <>
+                    <Separator className="my-6" />
+                    <div>
+                      <h3 className="text-lg font-semibold mb-3">Ticket Categories</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {event.seat_categories.map((category) => (
+                          <div key={category.id} className="border rounded-lg p-4">
+                            <div className="flex justify-between items-start mb-2">
+                              <h4 className="font-medium">{category.name}</h4>
+                              <span className="text-lg font-bold text-primary">${category.price}</span>
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              {category.capacity - category.sold} of {category.capacity} available
+                            </div>
+                            {category.capacity - category.sold <= 10 && (
+                              <Badge variant="destructive" className="mt-2 text-xs">
+                                Only {category.capacity - category.sold} left!
+                              </Badge>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
 
@@ -182,19 +327,30 @@ const EventDetails = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <h4 className="font-medium mb-2">Address</h4>
-                    <p className="text-muted-foreground">{event.venue_details.address}</p>
+                    <p className="text-muted-foreground">
+                      {event.venues?.address || 'Address TBA'}
+                    </p>
                   </div>
                   <div>
                     <h4 className="font-medium mb-2">Parking</h4>
-                    <p className="text-muted-foreground">{event.venue_details.parking}</p>
+                    <p className="text-muted-foreground">
+                      {event.venues?.parking_available ? 'Available on-site' : 'Limited parking'}
+                    </p>
                   </div>
                   <div>
                     <h4 className="font-medium mb-2">Accessibility</h4>
-                    <p className="text-muted-foreground">{event.venue_details.accessibility}</p>
+                    <p className="text-muted-foreground">
+                      {event.venues?.accessibility_features?.length ? 
+                        event.venues.accessibility_features.join(', ') : 
+                        'Contact venue for details'
+                      }
+                    </p>
                   </div>
                   <div>
                     <h4 className="font-medium mb-2">Age Restriction</h4>
-                    <p className="text-muted-foreground">{event.event_info.age_restriction}</p>
+                    <p className="text-muted-foreground">
+                      {event.age_restriction || 'All ages welcome'}
+                    </p>
                   </div>
                 </div>
               </CardContent>
@@ -208,8 +364,8 @@ const EventDetails = () => {
                 <div className="flex items-center justify-between">
                   <h3 className="text-2xl font-bold">Get Tickets</h3>
                   <div className="text-right">
-                    <p className="text-2xl font-bold text-primary">{event.price}</p>
-                    <p className="text-sm text-muted-foreground">per ticket</p>
+                    <p className="text-2xl font-bold text-primary">{getMinPrice()}</p>
+                    <p className="text-sm text-muted-foreground">starting from</p>
                   </div>
                 </div>
               </CardHeader>
@@ -219,18 +375,24 @@ const EventDetails = () => {
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-sm font-medium">Tickets Available</span>
                     <span className="text-sm text-muted-foreground">
-                      {event.ticketsLeft} of {event.totalTickets}
+                      {getTicketsLeft()} of {event.total_tickets}
                     </span>
                   </div>
                   <div className="w-full bg-muted rounded-full h-2">
                     <div 
                       className="bg-primary h-2 rounded-full transition-all duration-300" 
-                      style={{ width: `${soldPercentage}%` }}
+                      style={{ width: `${getSoldPercentage()}%` }}
                     />
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {soldPercentage.toFixed(1)}% sold
+                    {getSoldPercentage().toFixed(1)}% sold
                   </p>
+                  {availability && (
+                    <p className="text-xs text-blue-500 mt-1 flex items-center">
+                      <span className="w-2 h-2 bg-blue-500 rounded-full mr-1 animate-pulse"></span>
+                      Live availability
+                    </p>
+                  )}
                 </div>
 
                 <Separator />
@@ -239,15 +401,21 @@ const EventDetails = () => {
                 <div className="space-y-3">
                   <div className="flex justify-between">
                     <span className="text-sm">Doors Open</span>
-                    <span className="text-sm font-medium">{event.event_info.doors_open}</span>
+                    <span className="text-sm font-medium">
+                      {event.doors_open || 'TBA'}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm">Duration</span>
-                    <span className="text-sm font-medium">{event.event_info.duration}</span>
+                    <span className="text-sm font-medium">
+                      {event.duration_minutes ? `${event.duration_minutes} minutes` : 'TBA'}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm">Dress Code</span>
-                    <span className="text-sm font-medium">{event.event_info.dress_code}</span>
+                    <span className="text-sm font-medium">
+                      {event.dress_code || 'Casual'}
+                    </span>
                   </div>
                 </div>
 
@@ -258,14 +426,18 @@ const EventDetails = () => {
                   <Button 
                     className="w-full text-lg py-6" 
                     size="lg"
-                    onClick={() => setIsPurchaseDialogOpen(true)}
+                    onClick={handlePurchase}
+                    disabled={isSoldOut()}
                   >
                     <Ticket className="h-5 w-5 mr-2" />
-                    Buy Ticket Now
+                    {isSoldOut() ? 'Sold Out' : isAuthenticated ? 'Buy Tickets Now' : 'Sign In to Buy'}
                   </Button>
-                  <Button variant="outline" className="w-full" size="lg">
-                    Add to Wishlist
-                  </Button>
+                  {!isSoldOut() && (
+                    <Button variant="outline" className="w-full" size="lg">
+                      <Heart className="h-4 w-4 mr-2" />
+                      Add to Wishlist
+                    </Button>
+                  )}
                 </div>
 
                 <div className="text-xs text-muted-foreground text-center">

@@ -1,5 +1,10 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { ordersAPI } from '@/lib/api';
+import { useRealtimeOrders } from '@/hooks/useRealtimeEvents';
+import { useAuth } from '@/hooks/useAuth';
+import { useRoleProtection } from '@/hooks/useRoleProtection';
 import Navigation from "@/components/Navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,9 +12,24 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Search, Download, Calendar, MapPin, ExternalLink, Receipt } from "lucide-react";
+import { Search, Download, Calendar, MapPin, ExternalLink, Receipt, Ticket, ShoppingBag } from "lucide-react";
+import type { Order } from '@/lib/supabase';
+
+type OrderWithRelations = Order & {
+  events?: { id: string; title: string; date: string; poster_image_url?: string };
+  artists?: { id: string; name: string };
+  venues?: { id: string; name: string; city: string; state?: string };
+  seat_categories?: { id: string; name: string };
+};
 
 const OrderHistory = () => {
+  // Protect this route for customers only
+  const { hasAccess } = useRoleProtection({ requiredRole: 'customer' });
+  
+  if (!hasAccess) {
+    return null; // useRoleProtection handles the redirect
+  }
+
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");

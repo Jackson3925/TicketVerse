@@ -1,6 +1,7 @@
 
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useRoleProtection } from "@/hooks/useRoleProtection";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +21,13 @@ import Navigation from "@/components/Navigation";
 
 const SellerDashboard = () => {
   const navigate = useNavigate();
+  
+  // Protect this route for sellers only
+  const { hasAccess } = useRoleProtection({ requiredRole: 'seller' });
+  
+  if (!hasAccess) {
+    return null; // useRoleProtection handles the redirect
+  }
 
   // Mock data - in real app this would come from API
   const [events] = useState([

@@ -1,5 +1,6 @@
 
 import { useState } from "react";
+import { useAuthRequired } from "@/hooks/useRoleProtection";
 import Navigation from "@/components/Navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,13 @@ import { User, Wallet, Bell, Shield, Settings, Copy, CheckCircle } from "lucide-
 import { useToast } from "@/hooks/use-toast";
 
 const AccountProfile = () => {
+  // Protect this route - both customers and sellers can access profile
+  const { hasAccess } = useAuthRequired();
+  
+  if (!hasAccess) {
+    return null; // useAuthRequired handles the redirect
+  }
+
   const [profileData, setProfileData] = useState({
     displayName: "Music Lover",
     email: "user@example.com",

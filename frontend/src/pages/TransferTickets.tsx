@@ -1,5 +1,6 @@
 
 import { useState } from "react";
+import { useRoleProtection } from "@/hooks/useRoleProtection";
 import Navigation from "@/components/Navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,13 @@ import { Send, Calendar, MapPin, Gift, ArrowRight, AlertCircle } from "lucide-re
 import { useToast } from "@/hooks/use-toast";
 
 const TransferTickets = () => {
+  // Protect this route for customers only
+  const { hasAccess } = useRoleProtection({ requiredRole: 'customer' });
+  
+  if (!hasAccess) {
+    return null; // useRoleProtection handles the redirect
+  }
+
   const [selectedTicket, setSelectedTicket] = useState("");
   const [recipientAddress, setRecipientAddress] = useState("");
   const [recipientEmail, setRecipientEmail] = useState("");

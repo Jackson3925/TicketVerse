@@ -1,5 +1,7 @@
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { eventsAPI, utilsAPI } from '@/lib/api';
+import { useRealtimeEvents } from '@/hooks/useRealtimeEvents';
 import Navigation from "@/components/Navigation";
 import EventCard from "@/components/EventCard";
 import { Input } from "@/components/ui/input";
@@ -7,100 +9,151 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Filter, MapPin, Calendar } from "lucide-react";
+import type { Event } from '@/lib/supabase';
+
+type EventWithRelations = Event & {
+  artists?: { name: string; image_url?: string; verified?: boolean }
+  venues?: { name: string; city: string; state?: string; country: string }
+  seat_categories?: Array<{ price: number; capacity: number; sold: number }>
+}
 
 const BrowseEvents = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedGenre, setSelectedGenre] = useState("all");
   const [selectedLocation, setSelectedLocation] = useState("all");
   const [sortBy, setSortBy] = useState("date");
+  const [events, setEvents] = useState<EventWithRelations[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [locations, setLocations] = useState<string[]>([]);
 
-  const allEvents = [
-    {
-      id: 1,
-      title: "Electric Nights Festival",
-      artist: "Various Artists",
-      date: "2024-07-15",
-      venue: "Madison Square Garden",
-      location: "New York, NY",
-      price: "0.25 ETH",
-      image: "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=400&h=300&fit=crop",
-      category: "Electronic",
-      ticketsLeft: 156
-    },
-    {
-      id: 2,
-      title: "Rock Revolution Tour",
-      artist: "Thunder Strike",
-      date: "2024-07-22",
-      venue: "Hollywood Bowl",
-      location: "Los Angeles, CA",
-      price: "0.18 ETH",
-      image: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400&h=300&fit=crop",
-      category: "Rock",
-      ticketsLeft: 89
-    },
-    {
-      id: 3,
-      title: "Jazz Under Stars",
-      artist: "Miles Davis Tribute",
-      date: "2024-07-28",
-      venue: "Blue Note",
-      location: "Chicago, IL",
-      price: "0.12 ETH",
-      image: "https://images.unsplash.com/photo-1415201364774-f6f0bb35f28f?w=400&h=300&fit=crop",
-      category: "Jazz",
-      ticketsLeft: 45
-    },
-    {
-      id: 4,
-      title: "Pop Paradise",
-      artist: "Luna Star",
-      date: "2024-08-05",
-      venue: "Staples Center",
-      location: "Los Angeles, CA",
-      price: "0.32 ETH",
-      image: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=300&fit=crop",
-      category: "Pop",
-      ticketsLeft: 234
-    },
-    {
-      id: 5,
-      title: "Hip Hop Legends",
-      artist: "MC Flow",
-      date: "2024-08-12",
-      venue: "Brooklyn Barclays",
-      location: "Brooklyn, NY",
-      price: "0.28 ETH",
-      image: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400&h=300&fit=crop",
-      category: "Hip-Hop",
-      ticketsLeft: 67
-    },
-    {
-      id: 6,
-      title: "Classical Symphony",
-      artist: "Vienna Orchestra",
-      date: "2024-08-20",
-      venue: "Carnegie Hall",
-      location: "New York, NY",
-      price: "0.15 ETH",
-      image: "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=400&h=300&fit=crop",
-      category: "Classical",
-      ticketsLeft: 23
+  // Use real-time events hook for live updates
+  const { events: realtimeEvents } = useRealtimeEvents();
+
+  // Load initial data
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        setLoading(true);
+        
+        // Load events and categories in parallel
+        const [eventsData, categoriesData] = await Promise.all([
+          eventsAPI.getEvents(),
+          utilsAPI.getEventCategories()
+        ]);
+
+        setEvents(eventsData);
+        setCategories(['all', ...categoriesData]);
+        
+        // Extract unique locations from events
+        const uniqueLocations = new Set<string>();
+        eventsData.forEach(event => {
+          if (event.venues?.city && event.venues?.state) {
+            uniqueLocations.add(`${event.venues.city}, ${event.venues.state}`);
+          } else if (event.venues?.city) {
+            uniqueLocations.add(event.venues.city);
+          }
+        });
+        setLocations(['all', ...Array.from(uniqueLocations)]);
+        
+        setError(null);
+      } catch (err) {
+        console.error('Error loading browse events data:', err);
+        setError('Failed to load events. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadInitialData();
+  }, []);
+
+  // Update events when real-time data changes
+  useEffect(() => {
+    if (realtimeEvents.length > 0) {
+      setEvents(realtimeEvents);
     }
-  ];
+  }, [realtimeEvents]);
 
-  const genres = ["all", "Electronic", "Rock", "Pop", "Jazz", "Hip-Hop", "Classical"];
-  const locations = ["all", "New York, NY", "Los Angeles, CA", "Chicago, IL", "Brooklyn, NY"];
+  // Filter and search events
+  const filteredEvents = useCallback(() => {
+    let filtered = events.filter(event => {
+      // Search filter
+      const searchLower = searchQuery.toLowerCase();
+      const matchesSearch = !searchQuery || 
+        event.title.toLowerCase().includes(searchLower) ||
+        event.artists?.name.toLowerCase().includes(searchLower) ||
+        event.venues?.name.toLowerCase().includes(searchLower);
 
-  const filteredEvents = allEvents.filter(event => {
-    const matchesSearch = event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         event.artist.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         event.venue.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesGenre = selectedGenre === "all" || event.category === selectedGenre;
-    const matchesLocation = selectedLocation === "all" || event.location === selectedLocation;
-    
-    return matchesSearch && matchesGenre && matchesLocation;
-  });
+      // Category filter  
+      const matchesGenre = selectedGenre === "all" || event.category === selectedGenre;
+
+      // Location filter
+      const eventLocation = event.venues?.state 
+        ? `${event.venues.city}, ${event.venues.state}`
+        : event.venues?.city;
+      const matchesLocation = selectedLocation === "all" || eventLocation === selectedLocation;
+
+      return matchesSearch && matchesGenre && matchesLocation;
+    });
+
+    // Sort events
+    switch (sortBy) {
+      case 'date':
+        filtered.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        break;
+      case 'price':
+        filtered.sort((a, b) => {
+          const aMinPrice = Math.min(...(a.seat_categories?.map(cat => cat.price) || [0]));
+          const bMinPrice = Math.min(...(b.seat_categories?.map(cat => cat.price) || [0]));
+          return aMinPrice - bMinPrice;
+        });
+        break;
+      case 'popularity':
+        filtered.sort((a, b) => (b.sold_tickets || 0) - (a.sold_tickets || 0));
+        break;
+      default:
+        break;
+    }
+
+    return filtered;
+  }, [events, searchQuery, selectedGenre, selectedLocation, sortBy]);
+
+  const displayEvents = filteredEvents();
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
+        <Navigation />
+        <div className="container mx-auto px-4 py-8">
+          <div className="text-center py-16">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-muted-foreground">Loading events...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
+        <Navigation />
+        <div className="container mx-auto px-4 py-8">
+          <div className="text-center py-16">
+            <h2 className="text-2xl font-bold text-destructive mb-4">Oops! Something went wrong</h2>
+            <p className="text-muted-foreground mb-4">{error}</p>
+            <Button onClick={() => window.location.reload()}>
+              Try Again
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
@@ -111,7 +164,7 @@ const BrowseEvents = () => {
         <div className="mb-8">
           <h1 className="text-4xl font-bold mb-2">Browse Events</h1>
           <p className="text-muted-foreground">
-            Discover amazing concerts and events • {filteredEvents.length} events found
+            Discover amazing concerts and events • {displayEvents.length} events found
           </p>
         </div>
 
@@ -133,9 +186,9 @@ const BrowseEvents = () => {
                 <SelectValue placeholder="Genre" />
               </SelectTrigger>
               <SelectContent>
-                {genres.map(genre => (
-                  <SelectItem key={genre} value={genre}>
-                    {genre === "all" ? "All Genres" : genre}
+                {categories.map(category => (
+                  <SelectItem key={category} value={category}>
+                    {category === "all" ? "All Categories" : category}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -185,9 +238,9 @@ const BrowseEvents = () => {
         </div>
 
         {/* Events Grid */}
-        {filteredEvents.length > 0 ? (
+        {displayEvents.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredEvents.map((event) => (
+            {displayEvents.map((event) => (
               <EventCard key={event.id} event={event} />
             ))}
           </div>
@@ -195,7 +248,20 @@ const BrowseEvents = () => {
           <div className="text-center py-16">
             <Search className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-xl font-semibold mb-2">No events found</h3>
-            <p className="text-muted-foreground">Try adjusting your search criteria or filters</p>
+            <p className="text-muted-foreground">
+              {events.length === 0 
+                ? "No events are currently available." 
+                : "Try adjusting your search criteria or filters"
+              }
+            </p>
+            {events.length === 0 && (
+              <Button 
+                onClick={() => window.location.reload()} 
+                className="mt-4"
+              >
+                Refresh
+              </Button>
+            )}
           </div>
         )}
       </div>

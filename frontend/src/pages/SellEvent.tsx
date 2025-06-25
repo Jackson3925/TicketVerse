@@ -1,5 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { eventsAPI, artistsAPI, venuesAPI, sellersAPI } from '@/lib/api';
+import { useAuth } from '@/hooks/useAuth';
+import { useRoleProtection } from '@/hooks/useRoleProtection';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,8 +10,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Calendar, MapPin, Music, Plus, Minus, Upload, ArrowLeft, Image, Layout } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Calendar, MapPin, Music, Plus, Minus, Upload, ArrowLeft, Image, Layout, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import Navigation from "@/components/Navigation";
+import type { Artist, Database } from '@/lib/supabase';
 
 interface SeatCategory {
   name: string;
@@ -18,33 +24,82 @@ interface SeatCategory {
   nftImage?: string;
 }
 
+type Venue = Database['public']['Tables']['venues']['Row'];
+
 const SellEvent = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user, isAuthenticated } = useAuth();
+  
+  // Protect this route for sellers only
+  const { hasAccess } = useRoleProtection({ requiredRole: 'seller' });
+  
+  if (!hasAccess) {
+    return null; // useRoleProtection handles the redirect
+  }
+
+  // Loading and data states
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [artists, setArtists] = useState<Artist[]>([]);
+  const [venues, setVenues] = useState<Venue[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
   
   const [eventData, setEventData] = useState({
     title: "",
-    artist: "",
+    artist_id: "",
     description: "",
-    venue: "",
-    location: "",
+    venue_id: "",
     date: "",
     time: "",
-    category: "Rock",
+    doors_open: "",
+    category: "Concert",
+    age_restriction: "",
+    dress_code: "",
+    duration_minutes: 120,
     posterImage: "",
     seatArrangementImage: ""
   });
 
   const [seatCategories, setSeatCategories] = useState<SeatCategory[]>([
-    { name: "VIP", price: "0.45", capacity: 50, color: "bg-yellow-200" },
-    { name: "Premium", price: "0.35", capacity: 100, color: "bg-blue-200" },
-    { name: "Standard", price: "0.25", capacity: 200, color: "bg-gray-200" }
+    { name: "VIP", price: "0.45", capacity: 50, color: "#fbbf24" },
+    { name: "Premium", price: "0.35", capacity: 100, color: "#3b82f6" },
+    { name: "Standard", price: "0.25", capacity: 200, color: "#6b7280" }
   ]);
 
   const [nftImageOption, setNftImageOption] = useState<"single" | "category">("single");
   const [singleNftImage, setSingleNftImage] = useState("");
 
-  const musicCategories = ["Rock", "Electronic", "Pop", "Jazz", "Hip-Hop", "Classical", "Country", "R&B"];
+  const eventCategories = ["Concert", "Festival", "Theater", "Sports", "Comedy", "Conference", "Electronic", "Rock", "Pop", "Jazz", "Hip-Hop", "Classical", "Country", "R&B"];
+
+  // Load initial data
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        setLoadingData(true);
+        const [artistsData, venuesData] = await Promise.all([
+          artistsAPI.getArtists(),
+          venuesAPI.getVenues()
+        ]);
+        
+        setArtists(artistsData);
+        setVenues(venuesData);
+      } catch (error) {
+        console.error('Error loading initial data:', error);
+        toast({
+          title: "Error Loading Data",
+          description: "Failed to load artists and venues. Please refresh the page.",
+          variant: "destructive"
+        });
+      } finally {
+        setLoadingData(false);
+      }
+    };
+
+    if (isAuthenticated) {
+      loadInitialData();
+    }
+  }, [isAuthenticated, toast]);
 
   const handleInputChange = (field: string, value: string) => {
     setEventData(prev => ({ ...prev, [field]: value }));
@@ -61,7 +116,7 @@ const SellEvent = () => {
       name: "",
       price: "0.25",
       capacity: 50,
-      color: "bg-gray-200"
+      color: "#6b7280"
     }]);
   };
 
@@ -99,36 +154,158 @@ const SellEvent = () => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const validateForm = () => {
+    const errors: string[] = [];
+    
+    if (!eventData.title.trim()) errors.push("Event title is required");
+    if (!eventData.artist_id) errors.push("Please select an artist");
+    if (!eventData.venue_id) errors.push("Please select a venue");
+    if (!eventData.date) errors.push("Event date is required");
+    if (!eventData.time) errors.push("Event time is required");
+    if (!eventData.category) errors.push("Event category is required");
+    
+    // Validate seat categories
+    if (seatCategories.length === 0) {
+      errors.push("At least one seat category is required");
+    } else {
+      seatCategories.forEach((category, index) => {
+        if (!category.name.trim()) errors.push(`Seat category ${index + 1} name is required`);
+        if (!category.price || parseFloat(category.price) <= 0) errors.push(`Seat category ${index + 1} must have a valid price`);
+        if (!category.capacity || category.capacity <= 0) errors.push(`Seat category ${index + 1} must have a valid capacity`);
+      });
+    }
+    
+    // Validate future date
+    const eventDate = new Date(`${eventData.date}T${eventData.time}`);
+    if (eventDate <= new Date()) {
+      errors.push("Event date and time must be in the future");
+    }
+    
+    return errors;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validate required fields
-    if (!eventData.title || !eventData.artist || !eventData.venue || !eventData.date) {
+    if (!user) {
       toast({
-        title: "Missing Information",
-        description: "Please fill in all required fields.",
+        title: "Authentication Required",
+        description: "Please log in to create an event.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Validate form
+    const validationErrors = validateForm();
+    if (validationErrors.length > 0) {
+      toast({
+        title: "Validation Error",
+        description: validationErrors[0],
         variant: "destructive"
       });
       return;
     }
 
-    // Here you would typically send the data to your backend
-    console.log("Event Data:", eventData);
-    console.log("Seat Categories:", seatCategories);
+    setSubmitting(true);
     
-    toast({
-      title: "Event Created Successfully!",
-      description: "Your concert event has been listed and is now available for ticket sales."
-    });
+    try {
+      // Ensure seller profile exists
+      let sellerProfile = await sellersAPI.getSellerProfile(user.id);
+      if (!sellerProfile) {
+        console.log('Seller profile not found for user:', user.id);
+        throw new Error('Seller profile not found. Please complete your seller registration.');
+      }
 
-    // Navigate back to events page or show success state
-    navigate("/browse-events");
+      // Prepare seat categories data
+      const seatCategoriesData = seatCategories.map(category => ({
+        name: category.name.trim(),
+        price: parseFloat(category.price),
+        capacity: category.capacity,
+        color: category.color,
+        nft_image_url: nftImageOption === "category" ? category.nftImage : singleNftImage
+      }));
+      
+      console.log('Seat categories data being sent:', seatCategoriesData);
+
+      // Create the event
+      const newEvent = await eventsAPI.createEvent({
+        title: eventData.title.trim(),
+        description: eventData.description.trim() || undefined,
+        artist_id: eventData.artist_id,
+        venue_id: eventData.venue_id,
+        date: eventData.date,
+        time: eventData.time,
+        category: eventData.category,
+        poster_image_url: eventData.posterImage || undefined,
+        seat_categories: seatCategoriesData
+      });
+
+      toast({
+        title: "Event Created Successfully!",
+        description: `${eventData.title} has been created and is now available for ticket sales.`,
+        variant: "default"
+      });
+
+      // Navigate to the new event or seller dashboard
+      navigate(`/event/${newEvent.id}`);
+      
+    } catch (error: any) {
+      console.error('Error creating event:', error);
+      console.error('Error details:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint
+      });
+      
+      // Provide more specific error messages
+      let errorMessage = "Failed to create event. Please try again.";
+      if (error.code === '23503') {
+        if (error.message.includes('artist_id')) {
+          errorMessage = "Selected artist not found. Please select a valid artist.";
+        } else if (error.message.includes('venue_id')) {
+          errorMessage = "Selected venue not found. Please select a valid venue.";
+        } else if (error.message.includes('seller_id')) {
+          errorMessage = "User profile error. Please try logging out and back in.";
+        }
+      } else if (error.code === '23502') {
+        errorMessage = "Missing required information. Please check all fields are filled correctly.";
+      }
+      
+      toast({
+        title: "Error Creating Event",
+        description: `${errorMessage} (Error: ${error.code || 'Unknown'})`,
+        variant: "destructive"
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const totalCapacity = seatCategories.reduce((sum, cat) => sum + cat.capacity, 0);
 
+  // Show loading screen while loading initial data
+  if (loadingData) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <div className="container mx-auto px-4 py-8">
+          <div className="flex items-center justify-center min-h-[400px]">
+            <div className="text-center">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+              <p>Loading artists and venues...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
+      <Navigation />
+      
       {/* Header */}
       <div className="bg-primary text-primary-foreground py-6">
         <div className="container mx-auto px-4">
@@ -173,13 +350,27 @@ const SellEvent = () => {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="artist">Artist/Performer *</Label>
-                  <Input
-                    id="artist"
-                    placeholder="e.g., Various Artists, Thunder Strike"
-                    value={eventData.artist}
-                    onChange={(e) => handleInputChange("artist", e.target.value)}
-                    required
-                  />
+                  <Select value={eventData.artist_id} onValueChange={(value) => handleInputChange("artist_id", value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select an artist..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {artists.map((artist) => (
+                        <SelectItem key={artist.id} value={artist.id}>
+                          <div className="flex items-center gap-2">
+                            {artist.verified && <span className="text-blue-500">✓</span>}
+                            {artist.name}
+                            {artist.genre && <span className="text-muted-foreground">({artist.genre})</span>}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {artists.length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      No artists found. Consider creating an artist profile first.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -217,9 +408,9 @@ const SellEvent = () => {
               </div>
 
               <div className="space-y-2">
-                <Label>Music Category</Label>
+                <Label>Event Category</Label>
                 <div className="flex flex-wrap gap-2">
-                  {musicCategories.map((category) => (
+                  {eventCategories.map((category) => (
                     <Badge
                       key={category}
                       variant={eventData.category === category ? "default" : "outline"}
@@ -229,6 +420,41 @@ const SellEvent = () => {
                       {category}
                     </Badge>
                   ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="doors_open">Doors Open Time</Label>
+                  <Input
+                    id="doors_open"
+                    type="time"
+                    value={eventData.doors_open}
+                    onChange={(e) => handleInputChange("doors_open", e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="duration">Duration (minutes)</Label>
+                  <Input
+                    id="duration"
+                    type="number"
+                    placeholder="120"
+                    value={eventData.duration_minutes}
+                    onChange={(e) => handleInputChange("duration_minutes", e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="age_restriction">Age Restriction</Label>
+                  <Select value={eventData.age_restriction} onValueChange={(value) => handleInputChange("age_restriction", value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select age restriction..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all_ages">All Ages</SelectItem>
+                      <SelectItem value="18+">18+</SelectItem>
+                      <SelectItem value="21+">21+</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </CardContent>
@@ -244,27 +470,31 @@ const SellEvent = () => {
               <CardDescription>Where will your event take place?</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="venue">Venue Name *</Label>
-                  <Input
-                    id="venue"
-                    placeholder="e.g., Madison Square Garden"
-                    value={eventData.venue}
-                    onChange={(e) => handleInputChange("venue", e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="location">Location *</Label>
-                  <Input
-                    id="location"
-                    placeholder="e.g., New York, NY"
-                    value={eventData.location}
-                    onChange={(e) => handleInputChange("location", e.target.value)}
-                    required
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="venue">Venue *</Label>
+                <Select value={eventData.venue_id} onValueChange={(value) => handleInputChange("venue_id", value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a venue..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {venues.map((venue) => (
+                      <SelectItem key={venue.id} value={venue.id}>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{venue.name}</span>
+                          <span className="text-sm text-muted-foreground">
+                            {venue.city}, {venue.state && `${venue.state}, `}{venue.country}
+                            {venue.capacity && ` • Capacity: ${venue.capacity}`}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {venues.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    No venues found. Consider adding a venue first.
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -280,7 +510,10 @@ const SellEvent = () => {
                 <div key={index} className="border rounded-lg p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className={`w-4 h-4 rounded ${category.color}`}></div>
+                      <div 
+                        className="w-4 h-4 rounded border" 
+                        style={{ backgroundColor: category.color }}
+                      ></div>
                       <span className="font-medium">Category {index + 1}</span>
                     </div>
                     {seatCategories.length > 1 && (
@@ -411,7 +644,10 @@ const SellEvent = () => {
                   {seatCategories.map((category, index) => (
                     <div key={index} className="border rounded-lg p-4 space-y-3">
                       <div className="flex items-center gap-2">
-                        <div className={`w-4 h-4 rounded ${category.color}`}></div>
+                        <div 
+                          className="w-4 h-4 rounded border" 
+                          style={{ backgroundColor: category.color }}
+                        ></div>
                         <span className="font-medium">{category.name || `Category ${index + 1}`}</span>
                       </div>
                       <div className="flex items-center gap-4">
@@ -520,12 +756,21 @@ const SellEvent = () => {
 
           {/* Submit Button */}
           <div className="flex justify-end gap-4">
-            <Button type="button" variant="outline" onClick={() => navigate("/")}>
+            <Button type="button" variant="outline" onClick={() => navigate("/")} disabled={submitting}>
               Cancel
             </Button>
-            <Button type="submit" size="lg">
-              <Calendar className="h-4 w-4 mr-2" />
-              Create Event
+            <Button type="submit" size="lg" disabled={submitting}>
+              {submitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating Event...
+                </>
+              ) : (
+                <>
+                  <Calendar className="h-4 w-4 mr-2" />
+                  Create Event
+                </>
+              )}
             </Button>
           </div>
         </form>
