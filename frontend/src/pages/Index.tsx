@@ -61,8 +61,9 @@ const Index = () => {
     return (
       <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
         <Navigation />
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <div className="flex flex-col items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4"></div>
+          <p className="text-muted-foreground">Loading events...</p>
         </div>
       </div>
     )
@@ -74,11 +75,12 @@ const Index = () => {
         <Navigation />
         <div className="container mx-auto px-4 py-8">
           <div className="text-center">
+            <div className="text-red-500 text-6xl mb-4">⚠️</div>
             <h2 className="text-2xl font-bold text-destructive mb-4">Oops! Something went wrong</h2>
-            <p className="text-muted-foreground mb-4">{error}</p>
+            <p className="text-muted-foreground mb-4 max-w-md mx-auto">{error}</p>
             <button 
               onClick={() => window.location.reload()} 
-              className="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90"
+              className="bg-primary text-primary-foreground px-6 py-3 rounded-md hover:bg-primary/90 transition-colors"
             >
               Try Again
             </button>

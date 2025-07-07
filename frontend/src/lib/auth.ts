@@ -100,29 +100,43 @@ export const auth = {
           const mappedRole: 'buyer' | 'seller' = userRole === 'customer' ? 'buyer' : 
                             userRole === 'seller' ? 'seller' : 'buyer'
           
-          // Create base user record
-          await usersAPI.createUser(data.user.id, {
-            email,
-            display_name: displayName,
+          // Use database function to create profile (bypasses RLS)
+          const { error: profileError } = await supabase.rpc('create_user_profile', {
+            user_id: data.user.id,
+            user_email: email,
+            display_name: displayName || '',
             user_type: mappedRole
           })
 
-          // Create role-specific profile
-          if (mappedRole === 'seller') {
-            await sellersAPI.createSeller(data.user.id, {})
-          } else {
-            await buyersAPI.createBuyer(data.user.id, {})
+          if (profileError) {
+            throw profileError
           }
+
+          console.log('Profile created successfully for user:', data.user.id)
         } catch (profileError) {
           console.error('Error creating profile:', profileError)
           console.error('Profile creation error details:', {
             error: profileError,
+            errorMessage: (profileError as any)?.message,
+            errorCode: (profileError as any)?.code,
+            errorDetails: (profileError as any)?.details,
             userId: data.user.id,
             email,
             displayName,
             userRole,
-            mappedRole
+            mappedRole,
+            timestamp: new Date().toISOString()
           })
+          
+          // Log additional context for debugging
+          console.error('Supabase auth user data:', {
+            userId: data.user.id,
+            userEmail: data.user.email,
+            userConfirmed: data.user.email_confirmed_at,
+            userCreated: data.user.created_at,
+            sessionExists: !!data.session
+          })
+          
           // Don't fail signup if profile creation fails
         }
       }
