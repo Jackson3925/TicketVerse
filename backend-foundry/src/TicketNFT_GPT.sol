@@ -36,7 +36,7 @@ contract TicketNFT is ERC721, Ownable {
     event TransfersToggled(bool enabled);
 
     // Constructor with required parameters for both ERC721 and Ownable
-    constructor() ERC721("TEMP_NAME", "TEMP_SYMBOL") Ownable(msg.sender) {}
+    constructor() ERC721("TEMP_NAME", "TEMP_SYMBOL") Ownable(address(0)) {}
 
     function initialize(
         string memory name_,
