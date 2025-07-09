@@ -36,7 +36,7 @@ contract TicketNFT is ERC721, Ownable {
     event TransfersToggled(bool enabled);
 
     // Constructor with required parameters for both ERC721 and Ownable
-    constructor() ERC721("TEMP_NAME", "TEMP_SYMBOL") Ownable(msg.sender) {}
+    constructor() ERC721("TEMP_NAME", "TEMP_SYMBOL") Ownable(address(0)) {}
 
     function initialize(
         string memory name_,
@@ -69,7 +69,7 @@ contract TicketNFT is ERC721, Ownable {
         return _eventSymbol;
     }
 
-    function mintTicket(uint256 ticketTypeId, address recipient) external payable returns (uint256) {
+    function mintTicket(uint256 ticketTypeId, address recipient) external payable onlyOwner returns (uint256) {
         require(ticketTypeId < ticketTypes.length, "Invalid ticket type");
 
         TicketType storage tt = ticketTypes[ticketTypeId];
