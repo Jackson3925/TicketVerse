@@ -19,6 +19,12 @@ contract TicketSystemTest is Test {
     address buyer2 = makeAddr("buyer2");
 
     function setUp() public {
+        // Fund all test addresses
+        vm.deal(owner, 100 ether);
+        vm.deal(organizer, 100 ether);
+        vm.deal(buyer1, 100 ether);
+        vm.deal(buyer2, 100 ether);
+
         vm.startPrank(owner);
 
         // Deploy all contracts
@@ -119,7 +125,10 @@ contract TicketSystemTest is Test {
         // Enable resale after event starts
         vm.warp(eventInfo.eventDate + 1); // Fast forward to after event starts
 
+        vm.stopPrank();
+
         // Set resale rules first
+        vm.startPrank(owner); 
         resaleMarketplace.setResaleRules(
             address(ticketContract),
             2,    // maxPriceMultiplier
@@ -127,8 +136,10 @@ contract TicketSystemTest is Test {
             eventInfo.eventDate, // resaleStartTime
             true   // resaleEnabled
         );
+        vm.stopPrank(); // stop after startPrank()
 
         // List ticket
+        vm.startPrank(buyer1); // startPrank again for list ticket
         resaleMarketplace.listTicket(
             address(ticketContract),
             1,
@@ -139,6 +150,7 @@ contract TicketSystemTest is Test {
         (address seller, uint256 price) = resaleMarketplace.listings(address(ticketContract), 1);
         assertEq(seller, buyer1);
         assertEq(price, 0.15 ether);
+        vm.stopPrank(); // stopPrank after listing
 
         // Buy the ticket
         vm.startPrank(buyer2);
@@ -156,8 +168,8 @@ contract TicketSystemTest is Test {
     }
 
     function testRevenueSharing() public {
-        vm.startPrank(owner);
-
+        vm.startPrank(buyer1);
+        
         // Deposit revenue
         uint256 amount = 1 ether;
         revenueSharing.depositRevenue{value: amount}(organizer);
@@ -188,17 +200,20 @@ contract TicketSystemTest is Test {
         vm.startPrank(buyer1);
         vm.expectRevert("Transfers disabled before event");
         ticketContract.transferFrom(buyer1, buyer2, 1);
+        vm.stopPrank(); // stopPramk after failed transfer
 
         // Fast forward to after event
         vm.warp(eventInfo.eventDate + 1);
 
         // Enable transfers
+        vm.startPrank(organizer);
         ticketContract.setTransferEnabled(true);
+        vm.stopPrank(); // stopPrank after enabling transfers
 
         // Transfer should now succeed
+        vm.startPrank(buyer1); // startPrank again for transfer after enabling transfers
         ticketContract.transferFrom(buyer1, buyer2, 1);
         assertEq(ticketContract.ownerOf(1), buyer2);
-
         vm.stopPrank();
     }
 }

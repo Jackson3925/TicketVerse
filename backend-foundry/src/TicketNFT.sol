@@ -69,7 +69,7 @@ contract TicketNFT is ERC721, Ownable {
         return _eventSymbol;
     }
 
-    function mintTicket(uint256 ticketTypeId, address recipient) external payable onlyOwner returns (uint256) {
+    function mintTicket(uint256 ticketTypeId, address recipient) external payable returns (uint256) {
         require(ticketTypeId < ticketTypes.length, "Invalid ticket type");
 
         TicketType storage tt = ticketTypes[ticketTypeId];
