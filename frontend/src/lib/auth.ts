@@ -46,12 +46,13 @@ export interface UpdateBuyerData {
   bio?: string
   location?: string
   wallet_address?: string
+  wallet_balance?: number
+  wallet_verified?: boolean
   notification_event_reminders?: boolean
   notification_ticket_updates?: boolean
   notification_price_alerts?: boolean
   notification_marketing_emails?: boolean
   preferred_genres?: string[]
-  favorite_venues?: string[]
 }
 
 export interface UpdateSellerData {
@@ -59,9 +60,10 @@ export interface UpdateSellerData {
   business_type?: 'individual' | 'company' | 'venue'
   bio?: string
   location?: string
-  website_url?: string
   contact_phone?: string
   wallet_address?: string
+  wallet_balance?: number
+  wallet_verified?: boolean
   notification_new_orders?: boolean
   notification_customer_messages?: boolean
   notification_payout_updates?: boolean

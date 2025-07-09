@@ -1,8 +1,9 @@
 
 import { Button } from "@/components/ui/button";
-import { Ticket, Wallet, Menu, LogIn, LogOut, User } from "lucide-react";
+import { Ticket, Menu, LogIn, LogOut, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import WalletConnection from "@/components/WalletConnection";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,24 +64,46 @@ const Navigation = () => {
           >
             Artists
           </span>
-          <span 
-            className="text-foreground hover:text-primary transition-colors cursor-pointer"
-            onClick={() => navigate('/my-tickets')}
-          >
-            My Tickets
-          </span>
-          <span 
-            className="text-foreground hover:text-primary transition-colors cursor-pointer"
-            onClick={() => navigate('/resale')}
-          >
-            Resale
-          </span>
-          <span 
-            className="text-foreground hover:text-primary transition-colors cursor-pointer"
-            onClick={() => navigate('/seller/dashboard')}
-          >
-            Sell Events
-          </span>
+          
+          {/* Customer-only navigation items */}
+          {(isAuthenticated && getUserRole() === 'buyer') && (
+            <>
+              <span 
+                className="text-foreground hover:text-primary transition-colors cursor-pointer"
+                onClick={() => navigate('/my-tickets')}
+              >
+                My Tickets
+              </span>
+              <span 
+                className="text-foreground hover:text-primary transition-colors cursor-pointer"
+                onClick={() => navigate('/resale')}
+              >
+                Resale
+              </span>
+            </>
+          )}
+          
+          {/* Seller-only navigation items */}
+          {(isAuthenticated && getUserRole() === 'seller') && (
+            <span 
+              className="text-foreground hover:text-primary transition-colors cursor-pointer"
+              onClick={() => navigate('/seller/dashboard')}
+            >
+              Sell Events
+            </span>
+          )}
+          
+          {/* Show for non-authenticated users */}
+          {!isAuthenticated && (
+            <>
+              <span 
+                className="text-foreground hover:text-primary transition-colors cursor-pointer"
+                onClick={() => navigate('/resale')}
+              >
+                Resale
+              </span>
+            </>
+          )}
           
           {/* Account Dropdown - Only show when authenticated */}
           {isAuthenticated && (
@@ -135,16 +158,42 @@ const Navigation = () => {
                   <User className="h-4 w-4 mr-2" />
                   Profile
                 </DropdownMenuItem>
+                
+                {/* Seller-specific menu items */}
                 {getUserRole() === 'seller' && (
-                  <DropdownMenuItem onClick={() => navigate('/seller/dashboard')}>
-                    <Ticket className="h-4 w-4 mr-2" />
-                    Seller Dashboard
-                  </DropdownMenuItem>
+                  <>
+                    <DropdownMenuItem onClick={() => navigate('/seller/dashboard')}>
+                      <Ticket className="h-4 w-4 mr-2" />
+                      Seller Dashboard
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate('/seller/manage-events')}>
+                      <Ticket className="h-4 w-4 mr-2" />
+                      Manage Events
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate('/seller/analytics')}>
+                      <Ticket className="h-4 w-4 mr-2" />
+                      Analytics
+                    </DropdownMenuItem>
+                  </>
                 )}
-                <DropdownMenuItem onClick={() => navigate('/my-tickets')}>
-                  <Ticket className="h-4 w-4 mr-2" />
-                  My Tickets
-                </DropdownMenuItem>
+                
+                {/* Customer-specific menu items */}
+                {getUserRole() === 'buyer' && (
+                  <>
+                    <DropdownMenuItem onClick={() => navigate('/my-tickets')}>
+                      <Ticket className="h-4 w-4 mr-2" />
+                      My Tickets
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate('/orders')}>
+                      <Ticket className="h-4 w-4 mr-2" />
+                      Order History
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate('/transfer')}>
+                      <Ticket className="h-4 w-4 mr-2" />
+                      Transfer Tickets
+                    </DropdownMenuItem>
+                  </>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleSignOut}>
                   <LogOut className="h-4 w-4 mr-2" />
@@ -161,23 +210,28 @@ const Navigation = () => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => navigate('/auth/login')}>
+                  <LogIn className="h-4 w-4 mr-2" />
+                  Sign In
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                  Quick Access
+                </div>
                 <DropdownMenuItem onClick={() => navigate('/auth/customer')}>
                   <User className="h-4 w-4 mr-2" />
-                  Customer Login
+                  Customer Portal
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => navigate('/auth/seller')}>
                   <Ticket className="h-4 w-4 mr-2" />
-                  Seller Login
+                  Seller Portal
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           )}
           
-          {/* Connect Wallet button */}
-          <Button variant="outline" className="flex items-center space-x-2">
-            <Wallet className="h-4 w-4" />
-            <span className="hidden sm:inline">Connect Wallet</span>
-          </Button>
+          {/* Web3 Wallet Connection */}
+          <WalletConnection variant="button" size="default" />
         </div>
       </div>
     </nav>

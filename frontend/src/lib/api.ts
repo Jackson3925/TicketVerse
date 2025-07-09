@@ -229,7 +229,12 @@ export const usersAPI = {
   async getUser(userId?: string): Promise<User | null> {
     const id = userId || (await supabase.auth.getUser()).data.user?.id
     
-    if (!id) return null
+    console.log('usersAPI.getUser called with ID:', id);
+    
+    if (!id) {
+      console.log('No user ID provided, returning null');
+      return null;
+    }
 
     const { data, error } = await supabase
       .from('users')
@@ -237,15 +242,19 @@ export const usersAPI = {
       .eq('id', id)
       .single()
 
+    console.log('Database query result:', { data, error, userId: id });
+
     if (error) {
       if (error.code === 'PGRST116') {
         // User doesn't exist
+        console.log('User not found in database (PGRST116)');
         return null
       }
       console.error('Error fetching user:', error)
       throw error
     }
     
+    console.log('Returning user data:', data);
     return data
   },
 

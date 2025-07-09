@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
+import { Web3Provider } from "@/hooks/useWeb3";
 import Index from "./pages/Index";
 import EventDetails from "./pages/EventDetails";
 import MyTickets from "./pages/MyTickets";
@@ -21,6 +22,8 @@ import CustomerManagement from "./pages/seller/CustomerManagement";
 import ResaleControl from "./pages/seller/ResaleControl";
 import CustomerAuth from "./pages/CustomerAuth";
 import SellerAuth from "./pages/SellerAuth";
+import Login from "./pages/Login";
+import VerifyEmail from "./pages/VerifyEmail";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -35,10 +38,11 @@ const queryClient = new QueryClient({
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
+      <Web3Provider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/event/:id" element={<EventDetails />} />
@@ -51,6 +55,8 @@ const App = () => (
             <Route path="/orders" element={<OrderHistory />} />
             <Route path="/sell-event" element={<SellEvent />} />
             {/* Authentication Routes */}
+            <Route path="/auth/login" element={<Login />} />
+            <Route path="/auth/verify-email" element={<VerifyEmail />} />
             <Route path="/auth/customer" element={<CustomerAuth />} />
             <Route path="/auth/seller" element={<SellerAuth />} />
             {/* Seller Dashboard Routes */}
@@ -64,6 +70,7 @@ const App = () => (
           </Routes>
         </BrowserRouter>
       </TooltipProvider>
+    </Web3Provider>
     </AuthProvider>
   </QueryClientProvider>
 );

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ const CustomerAuthForm = ({
 }: CustomerAuthFormProps) => {
   const { signIn, signUp } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   
   const [mode, setMode] = useState(initialMode);
   const [loading, setLoading] = useState(false);
@@ -89,24 +91,28 @@ const CustomerAuthForm = ({
           title: "Welcome back!",
           description: "You're logged in as a customer.",
         });
+        
+        // Reset form
+        setFormData({
+          email: "",
+          password: "",
+          confirmPassword: "",
+          displayName: ""
+        });
+        
+        if (onSuccess) {
+          onSuccess();
+        }
       } else {
         await signUp(formData.email.trim(), formData.password, formData.displayName.trim(), "customer");
         toast({
           title: "Customer Account Created!",
           description: "Please check your email to verify your account.",
         });
-      }
-      
-      // Reset form
-      setFormData({
-        email: "",
-        password: "",
-        confirmPassword: "",
-        displayName: ""
-      });
-      
-      if (onSuccess) {
-        onSuccess();
+        
+        // Store email for verification page and redirect
+        localStorage.setItem('pendingVerificationEmail', formData.email.trim());
+        navigate(`/auth/verify-email?email=${encodeURIComponent(formData.email.trim())}`);
       }
       
     } catch (err: any) {
