@@ -121,6 +121,9 @@ export const eventsAPI = {
     venue_id: string
     date: string
     time: string
+    doors_open?: string
+    age_restriction?: string
+    duration_minutes?: number
     category: string
     poster_image_url?: string
     seat_categories: Array<{
@@ -144,6 +147,9 @@ export const eventsAPI = {
         venue_id: eventData.venue_id,
         date: eventData.date,
         time: eventData.time,
+        doors_open: eventData.doors_open,
+        age_restriction: eventData.age_restriction,
+        duration_minutes: eventData.duration_minutes,
         category: eventData.category,
         poster_image_url: eventData.poster_image_url,
         total_tickets: totalTickets,

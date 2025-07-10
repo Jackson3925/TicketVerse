@@ -236,6 +236,9 @@ const SellEvent = () => {
         venue_id: eventData.venue_id,
         date: eventData.date,
         time: eventData.time,
+        doors_open: eventData.doors_open || undefined,
+        age_restriction: eventData.age_restriction || undefined,
+        duration_minutes: eventData.duration_minutes || undefined,
         category: eventData.category,
         poster_image_url: eventData.posterImage || undefined,
         seat_categories: seatCategoriesData
