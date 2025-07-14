@@ -117,6 +117,9 @@ export const auth = {
           console.log('Profile created successfully for user:', data.user.id)
         } catch (profileError) {
           console.error('Error creating profile:', profileError)
+          const mappedRole: 'buyer' | 'seller' = userRole === 'customer' ? 'buyer' : 
+                            userRole === 'seller' ? 'seller' : 'buyer'
+          
           console.error('Profile creation error details:', {
             error: profileError,
             errorMessage: (profileError as any)?.message,
@@ -469,6 +472,193 @@ export const auth = {
     } catch (error) {
       console.error('Error checking user role:', error)
       return false
+    }
+  },
+
+  // Sign in with wallet address
+  async signInWithWallet(walletAddress: string): Promise<AuthResponse> {
+    try {
+      // Check if wallet exists in database
+      const { data: walletUserData, error: checkError } = await supabase.rpc('check_wallet_for_auth', {
+        wallet_addr: walletAddress
+      })
+
+      if (checkError) {
+        console.error('Wallet check error:', checkError)
+        return { 
+          user: null, 
+          session: null, 
+          error: { 
+            message: 'Failed to verify wallet address',
+            name: 'WalletVerificationError'
+          } as AuthError 
+        }
+      }
+
+      if (!walletUserData || walletUserData.length === 0) {
+        return { 
+          user: null, 
+          session: null, 
+          error: { 
+            message: 'Wallet address not found. Please register first.',
+            name: 'WalletNotFoundError'
+          } as AuthError 
+        }
+      }
+
+      const userData = walletUserData[0]
+      
+      // Get full user profile
+      const { data: profileData, error: profileError } = await supabase.rpc('get_wallet_user_profile', {
+        wallet_addr: walletAddress
+      })
+
+      if (profileError || !profileData) {
+        console.error('Profile fetch error:', profileError)
+        return { 
+          user: null, 
+          session: null, 
+          error: { 
+            message: 'Failed to load user profile',
+            name: 'ProfileLoadError'
+          } as AuthError 
+        }
+      }
+
+      // Create auth user object with profile data
+      const authUser: AuthUser = {
+        id: userData.user_id,
+        email: userData.email,
+        aud: 'authenticated',
+        role: 'authenticated',
+        email_confirmed_at: new Date().toISOString(),
+        confirmed_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        app_metadata: {},
+        user_metadata: {},
+        userProfile: {
+          id: profileData.id,
+          email: profileData.email,
+          display_name: profileData.display_name,
+          user_type: profileData.user_type,
+          created_at: profileData.created_at,
+          updated_at: profileData.updated_at
+        }
+      }
+
+      // Add role-specific profile
+      if (profileData.user_type === 'buyer' && profileData.buyer_profile) {
+        authUser.buyerProfile = {
+          ...authUser.userProfile,
+          ...profileData.buyer_profile
+        }
+      } else if (profileData.user_type === 'seller' && profileData.seller_profile) {
+        authUser.sellerProfile = {
+          ...authUser.userProfile,
+          ...profileData.seller_profile
+        }
+      }
+
+      return { 
+        user: authUser, 
+        session: null // No Supabase session for wallet auth
+      }
+    } catch (error) {
+      console.error('Unexpected wallet sign in error:', error)
+      return { 
+        user: null, 
+        session: null, 
+        error: error as AuthError 
+      }
+    }
+  },
+
+  // Register new user with wallet
+  async signUpWithWallet(walletAddress: string, displayName: string, userType: 'buyer' | 'seller' = 'buyer'): Promise<AuthResponse> {
+    try {
+      // Check if wallet already exists
+      const { data: existingUser } = await supabase.rpc('check_wallet_for_auth', {
+        wallet_addr: walletAddress
+      })
+
+      if (existingUser && existingUser.length > 0) {
+        return { 
+          user: null, 
+          session: null, 
+          error: { 
+            message: 'Wallet address already registered',
+            name: 'WalletExistsError'
+          } as AuthError 
+        }
+      }
+
+      // Create new user with wallet
+      const { data: newUserData, error: createError } = await supabase.rpc('create_wallet_user_for_auth', {
+        wallet_addr: walletAddress,
+        user_email: `${walletAddress.toLowerCase()}@wallet.local`, // Placeholder email
+        user_display_name: displayName,
+        user_user_type: userType
+      })
+
+      if (createError || !newUserData) {
+        console.error('User creation error:', createError)
+        return { 
+          user: null, 
+          session: null, 
+          error: { 
+            message: 'Failed to create user account',
+            name: 'UserCreationError'
+          } as AuthError 
+        }
+      }
+
+      // Create auth user object
+      const authUser: AuthUser = {
+        id: newUserData.id,
+        email: newUserData.email,
+        aud: 'authenticated',
+        role: 'authenticated',
+        email_confirmed_at: new Date().toISOString(),
+        confirmed_at: new Date().toISOString(),
+        created_at: newUserData.created_at,
+        updated_at: newUserData.updated_at,
+        app_metadata: {},
+        user_metadata: {},
+        userProfile: {
+          id: newUserData.id,
+          email: newUserData.email,
+          display_name: newUserData.display_name,
+          user_type: newUserData.user_type,
+          created_at: newUserData.created_at,
+          updated_at: newUserData.updated_at
+        }
+      }
+
+      // Add role-specific profile
+      if (newUserData.user_type === 'buyer' && newUserData.buyer_profile) {
+        authUser.buyerProfile = {
+          ...authUser.userProfile,
+          ...newUserData.buyer_profile
+        }
+      } else if (newUserData.user_type === 'seller' && newUserData.seller_profile) {
+        authUser.sellerProfile = {
+          ...authUser.userProfile,
+          ...newUserData.seller_profile
+        }
+      }
+
+      return { 
+        user: authUser, 
+        session: null // No Supabase session for wallet auth
+      }
+    } catch (error) {
+      console.error('Unexpected wallet sign up error:', error)
+      return { 
+        user: null, 
+        session: null, 
+        error: error as AuthError 
+      }
     }
   },
 

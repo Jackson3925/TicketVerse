@@ -11,6 +11,7 @@ import {
 } from '@/lib/web3';
 import { useToast } from '@/hooks/use-toast';
 import { auth } from '@/lib/auth';
+import { useAuth } from '@/hooks/useAuth';
 
 interface Web3ContextType {
   // Connection state
@@ -42,13 +43,16 @@ export const Web3Provider = ({ children }: Web3ProviderProps) => {
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+  const { signInWithWallet, isAuthenticated } = useAuth();
 
   // Set up event listeners only (don't auto-check connection)
   useEffect(() => {
     setupEventListeners();
+    setupAuthEventListeners();
     
     return () => {
       removeEventListeners();
+      removeAuthEventListeners();
     };
   }, []);
 
@@ -82,6 +86,21 @@ export const Web3Provider = ({ children }: Web3ProviderProps) => {
     window.ethereum.removeListener('disconnect', handleDisconnect);
   };
 
+  const setupAuthEventListeners = () => {
+    window.addEventListener('auth:signout', handleAuthSignOut);
+  };
+
+  const removeAuthEventListeners = () => {
+    window.removeEventListener('auth:signout', handleAuthSignOut);
+  };
+
+  const handleAuthSignOut = async () => {
+    // Automatically disconnect wallet when user signs out
+    if (isConnected) {
+      await disconnectWallet();
+    }
+  };
+
   const handleAccountsChanged = async (accounts: string[]) => {
     if (accounts.length === 0) {
       disconnectWallet();
@@ -96,6 +115,9 @@ export const Web3Provider = ({ children }: Web3ProviderProps) => {
         });
         const formattedBalance = formatEther(BigInt(balance));
         await updateWalletInDatabase(accounts[0], formattedBalance);
+        
+        // Attempt auto-login with new wallet
+        await attemptWalletAuth(accounts[0]);
       } catch (error) {
         console.error('Failed to update wallet info in database on account change:', error);
       }
@@ -174,6 +196,25 @@ export const Web3Provider = ({ children }: Web3ProviderProps) => {
     }
   };
 
+  const attemptWalletAuth = async (address: string) => {
+    try {
+      // Only attempt auto-login if not already authenticated
+      if (!isAuthenticated) {
+        await signInWithWallet(address);
+        console.log('Auto-login successful with wallet:', address);
+        toast({
+          title: "Auto-Login Successful",
+          description: `Logged in with wallet ${address.slice(0, 6)}...${address.slice(-4)}`,
+        });
+      }
+    } catch (error: any) {
+      // Silently fail if wallet is not registered - user can manually register
+      if (!error.message?.includes('Wallet address not found')) {
+        console.error('Auto-login failed:', error);
+      }
+    }
+  };
+
   const connectWallet = async () => {
     if (!isWalletAvailable()) {
       const errorMsg = 'No Web3 wallet detected. Please install MetaMask or another Web3 wallet.';
@@ -235,6 +276,9 @@ export const Web3Provider = ({ children }: Web3ProviderProps) => {
       });
       const formattedBalance = formatEther(BigInt(balance));
       await updateWalletInDatabase(accounts[0], formattedBalance);
+      
+      // Attempt auto-login with wallet
+      await attemptWalletAuth(accounts[0]);
       
       toast({
         title: "Wallet Connected",

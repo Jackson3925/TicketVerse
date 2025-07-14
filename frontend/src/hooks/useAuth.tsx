@@ -12,6 +12,8 @@ interface AuthContextType {
   loading: boolean
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string, displayName?: string, userRole?: string) => Promise<void>
+  signInWithWallet: (walletAddress: string) => Promise<void>
+  signUpWithWallet: (walletAddress: string, displayName: string, userType?: 'buyer' | 'seller') => Promise<void>
   signOut: () => Promise<void>
   updateProfile: (updates: any) => Promise<void>
   isAuthenticated: boolean
@@ -63,7 +65,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     })
 
     return () => {
-      unsubscribe.unsubscribe()
+      unsubscribe()
     }
   }, [])
 
@@ -108,6 +110,42 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }
 
+  const signInWithWallet = async (walletAddress: string) => {
+    setLoading(true)
+    try {
+      const { user: walletUser, error } = await auth.signInWithWallet(walletAddress)
+      
+      if (error) {
+        throw error
+      }
+      
+      setUser(walletUser)
+    } catch (error) {
+      console.error('Wallet sign in error:', error)
+      throw error
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const signUpWithWallet = async (walletAddress: string, displayName: string, userType: 'buyer' | 'seller' = 'buyer') => {
+    setLoading(true)
+    try {
+      const { user: newWalletUser, error } = await auth.signUpWithWallet(walletAddress, displayName, userType)
+      
+      if (error) {
+        throw error
+      }
+      
+      setUser(newWalletUser)
+    } catch (error) {
+      console.error('Wallet sign up error:', error)
+      throw error
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const signOut = async () => {
     setLoading(true)
     try {
@@ -119,6 +157,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       setUser(null)
       setSession(null)
+      
+      // Disconnect wallet when signing out
+      // This will be handled by the Web3Provider's disconnect method
+      window.dispatchEvent(new CustomEvent('auth:signout'))
     } catch (error) {
       console.error('Sign out error:', error)
       throw error
@@ -133,14 +175,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
 
     try {
-      const { profile, error } = await auth.updateProfile(updates)
+      const { user: updatedUser, error } = await auth.updateUser(updates)
       
       if (error) {
         throw error
       }
       
       // Update user state with new profile
-      setUser(prev => prev ? { ...prev, profile } : null)
+      if (updatedUser) {
+        setUser(prev => prev ? { ...prev, userProfile: updatedUser } : null)
+      }
     } catch (error) {
       console.error('Update profile error:', error)
       throw error
@@ -153,6 +197,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     loading,
     signIn,
     signUp,
+    signInWithWallet,
+    signUpWithWallet,
     signOut,
     updateProfile,
     isAuthenticated: !!user
@@ -324,9 +370,9 @@ export const useProfileCompletion = () => {
   const { user } = useAuth()
 
   const isProfileComplete = () => {
-    if (!user?.profile) return false
+    if (!user?.userProfile) return false
     
-    const profile = user.profile
+    const profile = user.userProfile
     return !!(
       profile.display_name &&
       profile.email
@@ -334,10 +380,10 @@ export const useProfileCompletion = () => {
   }
 
   const getMissingFields = () => {
-    if (!user?.profile) return ['display_name', 'email']
+    if (!user?.userProfile) return ['display_name', 'email']
     
     const missing: string[] = []
-    const profile = user.profile
+    const profile = user.userProfile
     
     if (!profile.display_name) missing.push('display_name')
     if (!profile.email) missing.push('email')
@@ -346,17 +392,14 @@ export const useProfileCompletion = () => {
   }
 
   const getCompletionPercentage = () => {
-    if (!user?.profile) return 0
+    if (!user?.userProfile) return 0
     
-    const profile = user.profile
+    const profile = user.userProfile
     const totalFields = 5 // Adjust based on your required fields
     let completedFields = 0
     
     if (profile.display_name) completedFields++
     if (profile.email) completedFields++
-    if (profile.bio) completedFields++
-    if (profile.location) completedFields++
-    if (profile.avatar_url) completedFields++
     
     return Math.round((completedFields / totalFields) * 100)
   }

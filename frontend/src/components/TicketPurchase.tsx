@@ -25,6 +25,8 @@ import {
 import { contractService, contractUtils, type TicketPurchaseParams } from "@/lib/contracts";
 import { formatEther, parseEther } from "@/lib/web3";
 import { useToast } from "@/hooks/use-toast";
+import { ordersAPI, ticketsAPI } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 
 interface TicketType {
   id: number;
@@ -50,6 +52,7 @@ const TicketPurchase = ({
   onPurchaseSuccess
 }: TicketPurchaseProps) => {
   const { isConnected, wallet, connectWallet } = useWeb3();
+  const { user, isAuthenticated } = useAuth();
   const { toast } = useToast();
   
   const [selectedTicketType, setSelectedTicketType] = useState<string>("");
@@ -59,7 +62,7 @@ const TicketPurchase = ({
 
   const selectedTicket = ticketTypes.find(t => t.id.toString() === selectedTicketType);
   const totalPrice = selectedTicket ? contractUtils.calculateTotalPrice(selectedTicket.price, quantity) : "0";
-  const canPurchase = selectedTicket && quantity > 0 && quantity <= selectedTicket.available && isConnected;
+  const canPurchase = selectedTicket && quantity > 0 && quantity <= selectedTicket.available && isConnected && isAuthenticated;
 
   const handlePurchase = async () => {
     if (!canPurchase || !selectedTicket || !wallet) return;

@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Calendar, MapPin, Music, Plus, Minus, Upload, ArrowLeft, Image, Layout, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Navigation from "@/components/Navigation";
+import CreateArtistModal from "@/components/CreateArtistModal";
 import type { Artist, Database } from '@/lib/supabase';
 
 interface SeatCategory {
@@ -44,6 +45,7 @@ const SellEvent = () => {
   const [artists, setArtists] = useState<Artist[]>([]);
   const [venues, setVenues] = useState<Venue[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+  const [showCreateArtistModal, setShowCreateArtistModal] = useState(false);
   
   const [eventData, setEventData] = useState({
     title: "",
@@ -103,6 +105,12 @@ const SellEvent = () => {
 
   const handleInputChange = (field: string, value: string) => {
     setEventData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleArtistCreated = (newArtist: Artist) => {
+    setArtists(prev => [newArtist, ...prev]);
+    setEventData(prev => ({ ...prev, artist_id: newArtist.id }));
+    setShowCreateArtistModal(false);
   };
 
   const updateSeatCategory = (index: number, field: keyof SeatCategory, value: string | number) => {
@@ -369,11 +377,27 @@ const SellEvent = () => {
                       ))}
                     </SelectContent>
                   </Select>
-                  {artists.length === 0 && (
-                    <p className="text-sm text-muted-foreground">
-                      No artists found. Consider creating an artist profile first.
-                    </p>
-                  )}
+                  <div className="flex items-center justify-between mt-2">
+                    {artists.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No artists found. Create one to get started.
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Don't see the artist you need?
+                      </p>
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowCreateArtistModal(true)}
+                      className="ml-2"
+                    >
+                      <Plus className="h-4 w-4 mr-1" />
+                      Create New Artist
+                    </Button>
+                  </div>
                 </div>
               </div>
 
@@ -778,6 +802,13 @@ const SellEvent = () => {
           </div>
         </form>
       </div>
+
+      {/* Create Artist Modal */}
+      <CreateArtistModal
+        isOpen={showCreateArtistModal}
+        onClose={() => setShowCreateArtistModal(false)}
+        onArtistCreated={handleArtistCreated}
+      />
     </div>
   );
 };

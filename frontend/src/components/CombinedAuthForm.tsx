@@ -144,10 +144,6 @@ const CombinedAuthForm = ({
     <Card className={`w-full max-w-md mx-auto ${className}`}>
       <CardHeader className="space-y-1">
         <div className="flex items-center justify-center space-x-2 mb-4">
-          <div className="flex items-center space-x-1">
-            <ShoppingCart className="h-5 w-5 text-primary" />
-            <Store className="h-5 w-5 text-orange-600" />
-          </div>
           <span className="text-lg font-semibold">Concert Platform</span>
         </div>
         <CardTitle className="text-2xl text-center">
