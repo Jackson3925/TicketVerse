@@ -3,6 +3,8 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/Base64.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
 
 contract TicketNFT is ERC721, Ownable {
     struct TicketType {
@@ -108,10 +110,32 @@ contract TicketNFT is ERC721, Ownable {
         return ticketDetails[tokenId];
     }
 
+    // function tokenURI(uint256 tokenId) public view override returns (string memory) {
+    //     require(_mintedTokens[tokenId], "Token does not exist");
+    //     uint256 ticketTypeId = ticketDetails[tokenId].ticketTypeId;
+    //     return ticketTypes[ticketTypeId].metadataURI;
+    // }
+    
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
         require(_mintedTokens[tokenId], "Token does not exist");
-        uint256 ticketTypeId = ticketDetails[tokenId].ticketTypeId;
-        return ticketTypes[ticketTypeId].metadataURI;
+        
+        TicketInfo memory ticket = ticketDetails[tokenId];
+        TicketType memory ticketType = ticketTypes[ticket.ticketTypeId];
+        
+        // Return a properly formatted metadata URI
+        return string(abi.encodePacked(
+            "data:application/json;base64,",
+            Base64.encode(bytes(abi.encodePacked(
+                '{"name":"', ticketType.name, ' #', Strings.toString(tokenId), '",',
+                '"description":"Concert ticket for ', _eventName, '",',
+                '"image":"', ticketType.metadataURI, '",',
+                '"attributes":[',
+                    '{"trait_type":"Event","value":"', _eventName, '"},',
+                    '{"trait_type":"Ticket Type","value":"', ticketType.name, '"},',
+                    '{"trait_type":"Price","value":"', Strings.toString(ticketType.price), '"}',
+                ']}'
+            )))
+        ));
     }
 
     function _update(
