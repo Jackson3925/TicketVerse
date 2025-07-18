@@ -1,7 +1,5 @@
 
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { ordersAPI } from '@/lib/api';
 import { useRealtimeOrders } from '@/hooks/useRealtimeEvents';
 import { useAuth } from '@/hooks/useAuth';
 import { useRoleProtection } from '@/hooks/useRoleProtection';
@@ -23,75 +21,65 @@ type OrderWithRelations = Order & {
 };
 
 const OrderHistory = () => {
-  // Protect this route for customers only
-  const { hasAccess } = useRoleProtection({ requiredRole: 'customer' });
+  // Protect this route for buyers only
+  const { hasAccess } = useRoleProtection({ requiredRole: 'buyer' });
+  const { user } = useAuth();
   
   if (!hasAccess) {
     return null; // useRoleProtection handles the redirect
   }
 
+  // Get real-time orders data
+  const { orders: realOrders, loading, error } = useRealtimeOrders(user?.id);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
 
-  const orders = [
-    {
-      id: "ORD-001",
-      eventTitle: "Electric Nights Festival",
-      artist: "Various Artists",
-      date: "2024-07-15",
-      venue: "Madison Square Garden",
-      location: "New York, NY",
-      purchaseDate: "2024-06-10",
-      price: "0.25 ETH",
-      quantity: 2,
-      status: "completed",
-      transactionHash: "0x1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b",
-      ticketNumbers: ["NFT-001-2024", "NFT-002-2024"]
-    },
-    {
-      id: "ORD-002",
-      eventTitle: "Rock Revolution Tour",
-      artist: "Thunder Strike",
-      date: "2024-07-22",
-      venue: "Hollywood Bowl",
-      location: "Los Angeles, CA",
-      purchaseDate: "2024-06-15",
-      price: "0.18 ETH",
-      quantity: 1,
-      status: "completed",
-      transactionHash: "0x2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c",
-      ticketNumbers: ["NFT-003-2024"]
-    },
-    {
-      id: "ORD-003",
-      eventTitle: "Jazz Under Stars",
-      artist: "Miles Davis Tribute",
-      date: "2024-07-28",
-      venue: "Blue Note",
-      location: "Chicago, IL",
-      purchaseDate: "2024-06-20",
-      price: "0.12 ETH",
-      quantity: 1,
-      status: "refunded",
-      transactionHash: "0x3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d",
-      ticketNumbers: ["NFT-004-2024"]
-    },
-    {
-      id: "ORD-004",
-      eventTitle: "Pop Paradise",
-      artist: "Luna Star",
-      date: "2024-08-05",
-      venue: "Staples Center",
-      location: "Los Angeles, CA",
-      purchaseDate: "2024-07-01",
-      price: "0.32 ETH",
-      quantity: 3,
-      status: "pending",
-      transactionHash: "0x4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e",
-      ticketNumbers: ["NFT-005-2024", "NFT-006-2024", "NFT-007-2024"]
-    }
-  ];
+  // Transform real orders to match the expected format
+  const orders = realOrders?.map(order => ({
+    id: order.id,
+    eventTitle: order.events?.title || 'Unknown Event',
+    artist: 'Various Artists', // You might need to add artist relation to orders
+    date: order.events?.date || '',
+    venue: 'TBD', // You might need to add venue relation to orders
+    location: 'TBD',
+    purchaseDate: order.purchase_date || order.created_at,
+    price: `${order.total_price} ETH`,
+    quantity: order.quantity,
+    status: order.status,
+    transactionHash: order.transaction_hash || '',
+    ticketNumbers: [] // This would need to be populated from related tickets
+  })) || [];
+
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
+        <Navigation />
+        <div className="container mx-auto px-4 py-8">
+          <div className="text-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+            <p className="mt-4 text-muted-foreground">Loading your order history...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
+        <Navigation />
+        <div className="container mx-auto px-4 py-8">
+          <div className="text-center py-12">
+            <p className="text-red-500">Error loading orders: {error.message}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const filteredOrders = orders.filter(order => {
     const matchesSearch = order.eventTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -201,7 +189,7 @@ const OrderHistory = () => {
                   <SelectItem value="all">All Statuses</SelectItem>
                   <SelectItem value="completed">Completed</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="refunded">Refunded</SelectItem>
+                  <SelectItem value="cancelled">Cancelled</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -228,66 +216,81 @@ const OrderHistory = () => {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Order ID</TableHead>
-                  <TableHead>Event</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Quantity</TableHead>
-                  <TableHead>Price</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredOrders.map((order) => (
-                  <TableRow key={order.id}>
-                    <TableCell className="font-mono text-sm">{order.id}</TableCell>
-                    <TableCell>
-                      <div>
-                        <div className="font-medium">{order.eventTitle}</div>
-                        <div className="text-sm text-muted-foreground">{order.artist}</div>
-                        <div className="text-xs text-muted-foreground flex items-center mt-1">
-                          <Calendar className="h-3 w-3 mr-1" />
-                          {formatDate(order.date)}
-                        </div>
-                        <div className="text-xs text-muted-foreground flex items-center">
-                          <MapPin className="h-3 w-3 mr-1" />
-                          {order.venue}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm">{formatDate(order.purchaseDate)}</TableCell>
-                    <TableCell>{order.quantity}</TableCell>
-                    <TableCell className="font-medium">{order.price}</TableCell>
-                    <TableCell>
-                      <Badge className={getStatusColor(order.status)}>
-                        {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex space-x-2">
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => handleDownloadReceipt(order.id)}
-                        >
-                          <Download className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => handleViewTransaction(order.transactionHash)}
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+            {filteredOrders.length === 0 ? (
+              <div className="text-center py-12">
+                <ShoppingBag className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium mb-2">No orders found</h3>
+                <p className="text-muted-foreground">
+                  {orders.length === 0 
+                    ? "You haven't made any purchases yet. Start by browsing events!" 
+                    : "No orders match your current filters. Try adjusting your search criteria."
+                  }
+                </p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Order ID</TableHead>
+                    <TableHead>Event</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Quantity</TableHead>
+                    <TableHead>Price</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredOrders.map((order) => (
+                    <TableRow key={order.id}>
+                      <TableCell className="font-mono text-sm">{order.id}</TableCell>
+                      <TableCell>
+                        <div>
+                          <div className="font-medium">{order.eventTitle}</div>
+                          <div className="text-sm text-muted-foreground">{order.artist}</div>
+                          <div className="text-xs text-muted-foreground flex items-center mt-1">
+                            <Calendar className="h-3 w-3 mr-1" />
+                            {formatDate(order.date)}
+                          </div>
+                          <div className="text-xs text-muted-foreground flex items-center">
+                            <MapPin className="h-3 w-3 mr-1" />
+                            {order.venue}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm">{formatDate(order.purchaseDate)}</TableCell>
+                      <TableCell>{order.quantity}</TableCell>
+                      <TableCell className="font-medium">{order.price}</TableCell>
+                      <TableCell>
+                        <Badge className={getStatusColor(order.status)}>
+                          {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex space-x-2">
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => handleDownloadReceipt(order.id)}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          {order.transactionHash && (
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => handleViewTransaction(order.transactionHash)}
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </div>

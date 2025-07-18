@@ -10,9 +10,13 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Wallet, CreditCard, Ticket, CheckCircle, MapPin } from "lucide-react";
 import SeatSelection from "./SeatSelection";
+import { contractService, contractUtils, TicketPurchaseParams } from "@/lib/contracts";
+import { useWeb3 } from "@/hooks/useWeb3";
+import { ticketsAPI, ordersAPI } from "@/lib/api";
 
 interface Event {
-  id: number;
+  id: string; // Database UUID
+  contract_event_id: number | null; // Smart contract event ID
   title: string;
   artist: string;
   date: string;
@@ -42,63 +46,146 @@ const TicketPurchaseDialog = ({ isOpen, onClose, event }: TicketPurchaseDialogPr
   const [quantity, setQuantity] = useState(1);
   const [selectedSeats, setSelectedSeats] = useState<Seat[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [walletConnected, setWalletConnected] = useState(false);
+  const [selectedTicketType, setSelectedTicketType] = useState<number>(0);
+  const [purchasedTokenId, setPurchasedTokenId] = useState<string | null>(null);
   const { toast } = useToast();
+  const { wallet, isConnected, connectWallet } = useWeb3();
+  const account = wallet?.address;
 
   const handleConnectWallet = async () => {
     setIsProcessing(true);
-    // Simulate wallet connection
-    setTimeout(() => {
-      setWalletConnected(true);
-      setIsProcessing(false);
+    try {
+      await connectWallet();
       toast({
         title: "Wallet Connected",
         description: "Your wallet has been successfully connected.",
       });
-    }, 2000);
+    } catch (error: any) {
+      toast({
+        title: "Connection Failed",
+        description: error.message || "Failed to connect wallet",
+        variant: "destructive"
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handlePurchase = async () => {
-    setIsProcessing(true);
-    // Simulate NFT ticket purchase
-    setTimeout(() => {
-      setStep(4);
-      setIsProcessing(false);
+    if (!isConnected || !account) {
       toast({
-        title: "Purchase Successful!",
-        description: `${selectedSeats.length} NFT ticket(s) purchased successfully.`,
+        title: "Wallet Not Connected",
+        description: "Please connect your wallet to purchase tickets.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (!contractUtils.isValidContractEventId(event.contract_event_id)) {
+      toast({
+        title: "Event Not Available",
+        description: "This event is not yet available for blockchain ticket purchases.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsProcessing(true);
+    
+    try {
+      // Get ticket type price from selectedSeats or use a default
+      const ticketPrice = selectedSeats.length > 0 ? selectedSeats[0].price : "0.1";
+      
+      // Prepare purchase parameters using contract_event_id
+      const purchaseParams: TicketPurchaseParams = {
+        eventId: event.contract_event_id, // Use contract event ID instead of database UUID
+        ticketTypeId: selectedTicketType,
+        recipient: account,
+        priceInEth: ticketPrice.replace(' ETH', '')
+      };
+
+      // Step 1: Create order in database first
+      const totalPrice = selectedSeats.reduce((sum, seat) => 
+        sum + parseFloat(seat.price.replace(' ETH', '')), 0
+      );
+      
+      // Find seat category ID for the first selected seat
+      const firstSeat = selectedSeats[0];
+      const seatCategoryId = await ticketsAPI.findSeatCategoryId(event.id, firstSeat.category);
+      
+      if (!seatCategoryId) {
+        throw new Error(`Seat category '${firstSeat.category}' not found for event`);
+      }
+      
+      const orderData = {
+        event_id: event.id,
+        seat_category_id: seatCategoryId,
+        quantity: selectedSeats.length,
+        unit_price: parseFloat(firstSeat.price.replace(' ETH', '')),
+        total_price: totalPrice
+      };
+      
+      console.log('Creating order:', orderData);
+      const order = await ordersAPI.createOrder(orderData);
+      console.log('Order created:', order);
+
+      // Step 2: Call contract to purchase ticket
+      const txHash = await contractService.purchaseTicket(purchaseParams);
+      console.log('Ticket purchase transaction:', txHash);
+      
+      // Step 3: Update order with transaction hash
+      try {
+        await ordersAPI.updateOrderStatus(order.id, 'confirmed', txHash);
+        console.log('Order status updated to confirmed');
+      } catch (updateError) {
+        console.warn('Failed to update order status, but continuing with ticket creation:', updateError);
+        // Continue with ticket creation even if order update fails
+      }
+      
+      // Step 4: Create tickets in database
+      const ticketPromises = selectedSeats.map(async (seat, i) => {
+        const ticketData = {
+          token_id: Date.now() + i, // Temporary - should get from contract event
+          order_id: order.id,
+          event_id: event.id,
+          seat_category_id: seatCategoryId,
+          ticket_number: `TKT-${Date.now()}-${i + 1}`,
+          seat_row: seat.row === 'AUTO' ? null : seat.row,
+          seat_number: seat.row === 'AUTO' ? null : seat.number.toString()
+        };
+        
+        console.log('Creating ticket:', ticketData);
+        return await ticketsAPI.createTicket(ticketData);
       });
       
-      // Store tickets with seat information
-      const existingTickets = JSON.parse(localStorage.getItem('myTickets') || '[]');
-      const newTickets = selectedSeats.map((seat, i) => ({
-        id: Date.now() + i,
-        eventId: event.id,
-        eventTitle: event.title,
-        artist: event.artist,
-        date: event.date,
-        venue: event.venue,
-        location: event.location,
-        price: seat.price,
-        image: event.image,
-        ticketNumber: `TKT-${Date.now()}-${i + 1}`,
-        seatInfo: {
-          row: seat.row,
-          number: seat.number,
-          category: seat.category
-        },
-        purchaseDate: new Date().toISOString(),
-        qrCode: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=TICKET-${seat.id}-${Date.now()}`,
-      }));
-      localStorage.setItem('myTickets', JSON.stringify([...existingTickets, ...newTickets]));
-    }, 3000);
+      const createdTickets = await Promise.all(ticketPromises);
+      console.log('Tickets created:', createdTickets);
+      
+      setPurchasedTokenId(txHash);
+      setStep(4);
+      
+      toast({
+        title: "Purchase Successful!",
+        description: `NFT ticket purchased successfully. Transaction: ${txHash.slice(0, 10)}...`,
+      });
+    } catch (error: any) {
+      console.error('Error purchasing ticket:', error);
+      toast({
+        title: "Purchase Failed",
+        description: contractUtils.formatContractError(error),
+        variant: "destructive"
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const resetDialog = () => {
     setStep(1);
     setQuantity(1);
     setSelectedSeats([]);
-    setWalletConnected(false);
+    setSelectedTicketType(0);
+    setPurchasedTokenId(null);
     setIsProcessing(false);
     onClose();
   };
@@ -165,6 +252,7 @@ const TicketPurchaseDialog = ({ isOpen, onClose, event }: TicketPurchaseDialogPr
                 maxSeats={quantity}
                 selectedSeats={selectedSeats}
                 onSeatsChange={setSelectedSeats}
+                eventId={event.id}
               />
 
               <div className="flex space-x-2">
@@ -204,7 +292,7 @@ const TicketPurchaseDialog = ({ isOpen, onClose, event }: TicketPurchaseDialogPr
                 </div>
               </div>
 
-              {!walletConnected ? (
+              {!isConnected ? (
                 <Button 
                   onClick={handleConnectWallet} 
                   disabled={isProcessing}
@@ -217,7 +305,7 @@ const TicketPurchaseDialog = ({ isOpen, onClose, event }: TicketPurchaseDialogPr
                 <div className="space-y-4">
                   <div className="flex items-center justify-center space-x-2 text-green-600">
                     <CheckCircle className="h-4 w-4" />
-                    <span className="text-sm">Wallet Connected</span>
+                    <span className="text-sm">Wallet Connected: {account?.slice(0, 6)}...{account?.slice(-4)}</span>
                   </div>
                   
                   <Button 
@@ -226,7 +314,7 @@ const TicketPurchaseDialog = ({ isOpen, onClose, event }: TicketPurchaseDialogPr
                     className="w-full"
                   >
                     <CreditCard className="h-4 w-4 mr-2" />
-                    {isProcessing ? "Processing Payment..." : `Buy ${selectedSeats.length} Ticket${selectedSeats.length > 1 ? 's' : ''}`}
+                    {isProcessing ? "Processing Payment..." : `Buy ${selectedSeats.length} NFT Ticket${selectedSeats.length > 1 ? 's' : ''}`}
                   </Button>
                 </div>
               )}
@@ -248,8 +336,13 @@ const TicketPurchaseDialog = ({ isOpen, onClose, event }: TicketPurchaseDialogPr
                 <p className="text-sm text-muted-foreground">
                   Your NFT tickets have been minted and added to your wallet.
                 </p>
-                <div className="mt-2 text-sm">
-                  <strong>Seats:</strong> {selectedSeats.map(s => s.id).join(', ')}
+                <div className="mt-2 text-sm space-y-1">
+                  <div><strong>Seats:</strong> {selectedSeats.map(s => s.id).join(', ')}</div>
+                  {purchasedTokenId && (
+                    <div className="break-all">
+                      <strong>Transaction:</strong> {purchasedTokenId.slice(0, 20)}...
+                    </div>
+                  )}
                 </div>
               </div>
               <Button onClick={resetDialog} className="w-full">

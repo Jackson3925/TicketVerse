@@ -11,11 +11,13 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calendar, MapPin, Music, Plus, Minus, Upload, ArrowLeft, Image, Layout, Loader2 } from "lucide-react";
+import { Calendar, MapPin, Music, Plus, Minus, Upload, ArrowLeft, Image, Layout, Loader2, Wallet } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Navigation from "@/components/Navigation";
 import CreateArtistModal from "@/components/CreateArtistModal";
 import type { Artist, Database } from '@/lib/supabase';
+import { contractService, contractUtils, CreateEventParams, TicketType } from '@/lib/contracts';
+import { useWeb3 } from '@/hooks/useWeb3';
 
 interface SeatCategory {
   name: string;
@@ -31,6 +33,8 @@ const SellEvent = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user, isAuthenticated } = useAuth();
+  const { wallet, isConnected, connectWallet } = useWeb3();
+  const account = wallet?.address;
   
   // Protect this route for sellers only
   const { hasAccess } = useRoleProtection({ requiredRole: 'seller' });
@@ -46,6 +50,8 @@ const SellEvent = () => {
   const [venues, setVenues] = useState<Venue[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [showCreateArtistModal, setShowCreateArtistModal] = useState(false);
+  const [blockchainTxHash, setBlockchainTxHash] = useState<string | null>(null);
+  const [creatingOnBlockchain, setCreatingOnBlockchain] = useState(false);
   
   const [eventData, setEventData] = useState({
     title: "",
@@ -203,6 +209,15 @@ const SellEvent = () => {
       });
       return;
     }
+
+    if (!isConnected || !account) {
+      toast({
+        title: "Wallet Not Connected",
+        description: "Please connect your wallet to create blockchain events.",
+        variant: "destructive"
+      });
+      return;
+    }
     
     // Validate form
     const validationErrors = validateForm();
@@ -216,6 +231,7 @@ const SellEvent = () => {
     }
 
     setSubmitting(true);
+    let newEvent = null;
     
     try {
       // Ensure seller profile exists
@@ -225,7 +241,7 @@ const SellEvent = () => {
         throw new Error('Seller profile not found. Please complete your seller registration.');
       }
 
-      // Prepare seat categories data
+      // Prepare seat categories data for database
       const seatCategoriesData = seatCategories.map(category => ({
         name: category.name.trim(),
         price: parseFloat(category.price),
@@ -236,8 +252,11 @@ const SellEvent = () => {
       
       console.log('Seat categories data being sent:', seatCategoriesData);
 
-      // Create the event
-      const newEvent = await eventsAPI.createEvent({
+      // Create event with integrated blockchain functionality
+      // The eventsAPI.createEvent function now handles both database and blockchain creation
+      setCreatingOnBlockchain(true);
+      
+      newEvent = await eventsAPI.createEvent({
         title: eventData.title.trim(),
         description: eventData.description.trim() || undefined,
         artist_id: eventData.artist_id,
@@ -250,29 +269,35 @@ const SellEvent = () => {
         category: eventData.category,
         poster_image_url: eventData.posterImage || undefined,
         seat_categories: seatCategoriesData
-      });
+      }, account); // Pass wallet address as organizer
 
+      console.log('Event created with blockchain integration:', newEvent);
+      
+      // The contract_event_id is now automatically set by the integrated createEvent function
+      
       toast({
         title: "Event Created Successfully!",
-        description: `${eventData.title} has been created and is now available for ticket sales.`,
+        description: `${eventData.title} has been created on blockchain${newEvent.contract_event_id ? ` (Contract Event ID: ${newEvent.contract_event_id})` : ''} and is now available for ticket sales.`,
         variant: "default"
       });
 
-      // Navigate to the new event or seller dashboard
+      // Navigate to the new event
       navigate(`/event/${newEvent.id}`);
       
     } catch (error: any) {
       console.error('Error creating event:', error);
-      console.error('Error details:', {
-        code: error.code,
-        message: error.message,
-        details: error.details,
-        hint: error.hint
-      });
       
-      // Provide more specific error messages
+      // If blockchain creation failed but database creation succeeded,
+      // we should ideally rollback the database creation or mark it as failed
+      
       let errorMessage = "Failed to create event. Please try again.";
-      if (error.code === '23503') {
+      
+      // Handle blockchain-specific errors
+      if (error.message?.includes('User denied transaction signature')) {
+        errorMessage = "Transaction was cancelled. Please approve the transaction to create the event.";
+      } else if (error.message?.includes('insufficient funds')) {
+        errorMessage = "Insufficient ETH balance to create the event. Please add more ETH to your wallet.";
+      } else if (error.code === '23503') {
         if (error.message.includes('artist_id')) {
           errorMessage = "Selected artist not found. Please select a valid artist.";
         } else if (error.message.includes('venue_id')) {
@@ -286,11 +311,12 @@ const SellEvent = () => {
       
       toast({
         title: "Error Creating Event",
-        description: `${errorMessage} (Error: ${error.code || 'Unknown'})`,
+        description: `${errorMessage} ${error.code ? `(Error: ${error.code})` : ''}`,
         variant: "destructive"
       });
     } finally {
       setSubmitting(false);
+      setCreatingOnBlockchain(false);
     }
   };
 
@@ -781,21 +807,83 @@ const SellEvent = () => {
             </CardContent>
           </Card>
 
+          {/* Wallet Connection & Submit */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Wallet className="h-5 w-5" />
+                Blockchain Integration
+              </CardTitle>
+              <CardDescription>
+                Connect your wallet to create the event on the blockchain
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!isConnected ? (
+                <div className="text-center space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    A wallet connection is required to create blockchain events and NFT tickets.
+                  </p>
+                  <Button 
+                    type="button" 
+                    onClick={connectWallet}
+                    className="w-full"
+                  >
+                    <Wallet className="h-4 w-4 mr-2" />
+                    Connect Wallet
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-center space-x-2 text-green-600">
+                    <Wallet className="h-4 w-4" />
+                    <span className="text-sm">
+                      Wallet Connected: {account?.slice(0, 6)}...{account?.slice(-4)}
+                    </span>
+                  </div>
+                  
+                  {blockchainTxHash && (
+                    <div className="bg-green-50 p-3 rounded-lg">
+                      <p className="text-sm font-medium text-green-800">
+                        Blockchain Transaction: {blockchainTxHash.slice(0, 10)}...
+                      </p>
+                      <p className="text-xs text-green-600 mt-1">
+                        Event created successfully on blockchain
+                      </p>
+                    </div>
+                  )}
+                  
+                  <div className="bg-blue-50 p-3 rounded-lg">
+                    <p className="text-sm text-blue-800">
+                      <strong>Ready to create blockchain event:</strong>
+                    </p>
+                    <ul className="text-xs text-blue-600 mt-1 space-y-1">
+                      <li>• Event will be deployed as a smart contract</li>
+                      <li>• Tickets will be minted as NFTs</li>
+                      <li>• Prices are set in ETH</li>
+                      <li>• Transfers locked until after event</li>
+                    </ul>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Submit Button */}
           <div className="flex justify-end gap-4">
             <Button type="button" variant="outline" onClick={() => navigate("/")} disabled={submitting}>
               Cancel
             </Button>
-            <Button type="submit" size="lg" disabled={submitting}>
+            <Button type="submit" size="lg" disabled={submitting || !isConnected}>
               {submitting ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Creating Event...
+                  {creatingOnBlockchain ? 'Creating on Blockchain...' : 'Creating Event...'}
                 </>
               ) : (
                 <>
                   <Calendar className="h-4 w-4 mr-2" />
-                  Create Event
+                  Create Event {!isConnected && '(Wallet Required)'}
                 </>
               )}
             </Button>

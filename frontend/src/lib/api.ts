@@ -113,7 +113,7 @@ export const eventsAPI = {
     return data
   },
 
-  // Create new event (for sellers)
+  // Create new event (for sellers) with smart contract integration
   async createEvent(eventData: {
     title: string
     description?: string
@@ -133,11 +133,31 @@ export const eventsAPI = {
       color?: string
       nft_image_url?: string
     }>
-  }): Promise<Event> {
+  }, organizerWalletAddress?: string): Promise<Event> {
+    // Import contract service here to avoid circular dependency
+    const { contractService } = await import('./contracts');
+
     // Calculate total tickets
     const totalTickets = eventData.seat_categories.reduce((sum, cat) => sum + cat.capacity, 0)
 
-    // Insert event
+    // Get current user for database relations
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
+    // Validate wallet address for blockchain operations
+    if (!organizerWalletAddress) {
+      throw new Error('Wallet address is required for blockchain event creation');
+    }
+
+    // Import ethers to validate address format
+    const { ethers } = await import('ethers');
+    if (!ethers.isAddress(organizerWalletAddress)) {
+      throw new Error('Invalid wallet address format');
+    }
+
+    // First, create the event in the database (without contract_event_id)
     const { data: event, error: eventError } = await supabase
       .from('events')
       .insert({
@@ -153,7 +173,7 @@ export const eventsAPI = {
         category: eventData.category,
         poster_image_url: eventData.poster_image_url,
         total_tickets: totalTickets,
-        seller_id: (await supabase.auth.getUser()).data.user?.id
+        seller_id: user.id
       })
       .select()
       .single()
@@ -175,10 +195,60 @@ export const eventsAPI = {
 
     if (seatError) {
       console.error('Error creating seat categories:', seatError)
+      // Rollback event creation
+      await supabase.from('events').delete().eq('id', event.id)
       throw seatError
     }
 
-    return event
+    // Now create the smart contract event
+    try {
+      const eventDate = new Date(`${eventData.date} ${eventData.time}`);
+      const eventTimestamp = Math.floor(eventDate.getTime() / 1000);
+
+      // Convert seat categories to ticket types for the smart contract
+      const ticketTypes = eventData.seat_categories.map(cat => ({
+        name: cat.name,
+        price: cat.price.toString(), // Price is already in ETH format from frontend
+        maxSupply: cat.capacity,
+        currentSupply: 0,
+        metadataURI: cat.nft_image_url || `ipfs://default-${cat.name.toLowerCase()}`
+      }));
+
+      const contractResult = await contractService.createContractEvent({
+        name: eventData.title,
+        description: eventData.description || '',
+        eventDate: eventTimestamp,
+        organizer: organizerWalletAddress, // Use wallet address as organizer
+        ticketTypes
+      });
+
+      // Update the event with contract information
+      const { data: updatedEvent, error: updateError } = await supabase
+        .from('events')
+        .update({
+          contract_event_id: contractResult.contractEventId
+        })
+        .eq('id', event.id)
+        .select()
+        .single()
+
+      if (updateError) {
+        console.error('Error updating event with contract info:', updateError)
+        // Note: Contract has been created but database update failed
+        // This is a partial failure that needs manual intervention
+        throw new Error(`Event created but contract integration failed: ${updateError.message}`)
+      }
+
+      return updatedEvent
+    } catch (contractError) {
+      console.error('Error creating smart contract event:', contractError)
+      
+      // Rollback database changes
+      await supabase.from('seat_categories').delete().eq('event_id', event.id)
+      await supabase.from('events').delete().eq('id', event.id)
+      
+      throw new Error(`Failed to create smart contract event: ${contractError.message}`)
+    }
   },
 
   // Get seller's events
@@ -615,11 +685,11 @@ export const ticketsAPI = {
       .from('tickets')
       .select(`
         *,
-        events(id, title, date, time, poster_image_url, category),
-        artists(id, name, image_url),
-        venues(id, name, city, state),
-        seat_categories(id, name, price, color),
-        orders(id, purchase_date, total_price, transaction_hash)
+        events!tickets_event_id_fkey(id, title, date, time, poster_image_url, category),
+        artists!events_artist_id_fkey(id, name, image_url),
+        venues!events_venue_id_fkey(id, name, city, state),
+        seat_categories!tickets_seat_category_id_fkey(id, name, price, color),
+        orders!tickets_order_id_fkey(id, purchase_date, total_price, transaction_hash)
       `)
       .eq('owner_id', id)
       .order('created_at', { ascending: false })
@@ -669,6 +739,171 @@ export const ticketsAPI = {
     }
     
     return data
+  },
+
+  // Create new ticket after blockchain purchase
+  async createTicket(ticketData: {
+    token_id: number
+    order_id: string
+    event_id: string
+    seat_category_id: string
+    ticket_number: string
+    seat_row?: string
+    seat_number?: string
+    owner_id?: string
+  }): Promise<Ticket> {
+    const user = await supabase.auth.getUser()
+    
+    if (!user.data.user) {
+      throw new Error('User not authenticated')
+    }
+
+    const { data, error } = await supabase
+      .from('tickets')
+      .insert({
+        ...ticketData,
+        owner_id: ticketData.owner_id || user.data.user.id,
+        qr_code: `QR-${ticketData.ticket_number}`, // Generate QR code string
+        is_used: false
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error creating ticket:', error)
+      throw error
+    }
+    
+    return data
+  },
+
+  // Get seat categories for an event
+  async getEventSeatCategories(eventId: string): Promise<SeatCategory[]> {
+    const { data, error } = await supabase
+      .from('seat_categories')
+      .select('*')
+      .eq('event_id', eventId)
+
+    if (error) {
+      console.error('Error fetching seat categories:', error)
+      throw error
+    }
+    
+    return data || []
+  },
+
+  // Find seat category ID by event and category name
+  async findSeatCategoryId(eventId: string, categoryName: string): Promise<string | null> {
+    const { data, error } = await supabase
+      .from('seat_categories')
+      .select('id')
+      .eq('event_id', eventId)
+      .ilike('name', categoryName) // Case-insensitive match
+      .single()
+
+    if (error) {
+      console.warn(`Seat category '${categoryName}' not found for event ${eventId}:`, error)
+      return null
+    }
+    
+    return data?.id || null
+  },
+
+  // Get real-time seat availability for an event
+  async getEventSeatAvailability(eventId: string): Promise<{
+    categories: Array<{
+      id: string
+      name: string
+      price: number
+      capacity: number
+      sold: number
+      available: number
+      color?: string
+    }>
+    occupiedSeats: Array<{
+      seat_row: string
+      seat_number: string
+      seat_category_id: string
+    }>
+  }> {
+    // Get seat categories with current sold count
+    const { data: categories, error: catError } = await supabase
+      .from('seat_categories')
+      .select('id, name, price, capacity, sold, color')
+      .eq('event_id', eventId)
+
+    if (catError) {
+      console.error('Error fetching seat categories:', catError)
+      throw catError
+    }
+
+    // Get all sold seats for this event
+    const { data: tickets, error: ticketError } = await supabase
+      .from('tickets')
+      .select('seat_row, seat_number, seat_category_id')
+      .eq('event_id', eventId)
+      .not('seat_row', 'is', null)
+      .not('seat_number', 'is', null)
+
+    if (ticketError) {
+      console.error('Error fetching sold tickets:', ticketError)
+      throw ticketError
+    }
+
+    const occupiedSeats = tickets || []
+
+    // Calculate real availability
+    const categoriesWithAvailability = (categories || []).map(cat => ({
+      ...cat,
+      sold: cat.sold || 0,
+      available: cat.capacity - (cat.sold || 0)
+    }))
+
+    return {
+      categories: categoriesWithAvailability,
+      occupiedSeats
+    }
+  },
+
+  // Check if specific seats are available
+  async checkSeatsAvailability(eventId: string, seats: Array<{
+    row: string
+    number: string
+    categoryId: string
+  }>): Promise<{
+    available: boolean
+    conflicts: Array<{
+      row: string
+      number: string
+    }>
+  }> {
+    const seatChecks = seats.map(seat => 
+      supabase
+        .from('tickets')
+        .select('id')
+        .eq('event_id', eventId)
+        .eq('seat_row', seat.row)
+        .eq('seat_number', seat.number)
+        .single()
+    )
+
+    const results = await Promise.allSettled(seatChecks)
+    const conflicts: Array<{ row: string; number: string }> = []
+
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled' && result.value.data) {
+        // Seat is occupied
+        conflicts.push({
+          row: seats[index].row,
+          number: seats[index].number
+        })
+      }
+    })
+
+    return {
+      available: conflicts.length === 0,
+      conflicts
+    }
   }
 }
 

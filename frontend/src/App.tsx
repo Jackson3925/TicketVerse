@@ -11,7 +11,6 @@ import MyTickets from "./pages/MyTickets";
 import BrowseEvents from "./pages/BrowseEvents";
 import Artists from "./pages/Artists";
 import ResaleMarketplace from "./pages/ResaleMarketplace";
-import TransferTickets from "./pages/TransferTickets";
 import AccountProfile from "./pages/AccountProfile";
 import OrderHistory from "./pages/OrderHistory";
 import SellEvent from "./pages/SellEvent";
@@ -50,7 +49,6 @@ const App = () => (
             <Route path="/browse-events" element={<BrowseEvents />} />
             <Route path="/artists" element={<Artists />} />
             <Route path="/resale" element={<ResaleMarketplace />} />
-            <Route path="/transfer" element={<TransferTickets />} />
             <Route path="/profile" element={<AccountProfile />} />
             <Route path="/orders" element={<OrderHistory />} />
             <Route path="/sell-event" element={<SellEvent />} />

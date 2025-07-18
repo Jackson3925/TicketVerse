@@ -120,9 +120,6 @@ const Navigation = () => {
                 <DropdownMenuItem onClick={() => navigate('/orders')}>
                   Order History
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate('/transfer')}>
-                  Transfer Tickets
-                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem>
                   Settings
@@ -187,10 +184,6 @@ const Navigation = () => {
                     <DropdownMenuItem onClick={() => navigate('/orders')}>
                       <Ticket className="h-4 w-4 mr-2" />
                       Order History
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => navigate('/transfer')}>
-                      <Ticket className="h-4 w-4 mr-2" />
-                      Transfer Tickets
                     </DropdownMenuItem>
                   </>
                 )}

@@ -1,270 +1,509 @@
 // Smart Contract Integration for Concert Platform
+import { ethers } from 'ethers';
 import { parseEther, formatEther } from '@/lib/web3';
 
-// Contract ABIs - These should be imported from your compiled contracts
-export const TICKET_FACTORY_ABI = [
-  {
-    "inputs": [],
-    "name": "createEvent",
-    "outputs": [{"internalType": "address", "name": "", "type": "address"}],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {"internalType": "address", "name": "ticketContract", "type": "address"},
-      {"internalType": "uint256", "name": "ticketType", "type": "uint256"},
-      {"internalType": "address", "name": "to", "type": "address"}
-    ],
-    "name": "mintTicket",
-    "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
-    "stateMutability": "payable",
-    "type": "function"
-  },
-  {
-    "inputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
-    "name": "events",
-    "outputs": [
-      {"internalType": "address", "name": "ticketContract", "type": "address"},
-      {"internalType": "address", "name": "organizer", "type": "address"},
-      {"internalType": "string", "name": "name", "type": "string"},
-      {"internalType": "uint256", "name": "eventDate", "type": "uint256"},
-      {"internalType": "bool", "name": "isActive", "type": "bool"}
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  }
-];
+// Import ABI files
+import TicketFactoryABI from '@/abi/TicketFactory.json';
+import TicketNFTABI from '@/abi/TicketNFT.json';
 
-export const TICKET_NFT_ABI = [
-  {
-    "inputs": [{"internalType": "address", "name": "owner", "type": "address"}],
-    "name": "balanceOf",
-    "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [{"internalType": "uint256", "name": "tokenId", "type": "uint256"}],
-    "name": "ownerOf",
-    "outputs": [{"internalType": "address", "name": "", "type": "address"}],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [{"internalType": "uint256", "name": "tokenId", "type": "uint256"}],
-    "name": "tokenURI",
-    "outputs": [{"internalType": "string", "name": "", "type": "string"}],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {"internalType": "address", "name": "from", "type": "address"},
-      {"internalType": "address", "name": "to", "type": "address"},
-      {"internalType": "uint256", "name": "tokenId", "type": "uint256"}
-    ],
-    "name": "transferFrom",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  }
-];
+// Export the imported ABIs
+export const TICKET_FACTORY_ABI = TicketFactoryABI;
+export const TICKET_NFT_ABI = TicketNFTABI;
 
 // Contract addresses (update these with your deployed contract addresses)
 export const CONTRACT_ADDRESSES = {
-  TICKET_FACTORY: "0x...", // Your TicketFactory contract address
-  // Add other contract addresses as needed
+  TICKET_FACTORY: import.meta.env.VITE_TICKET_FACTORY_ADDRESS || "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82", // Your TicketFactory contract address
+  TICKET_NFT_IMPLEMENTATION: import.meta.env.VITE_TICKET_NFT_IMPLEMENTATION_ADDRESS || "0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0", // TicketNFT implementation address
+  RESALE_MARKETPLACE: import.meta.env.VITE_RESALE_MARKETPLACE_ADDRESS || "0x9A676e781A523b5d0C0e43731313A708CB607508", // ResaleMarketplace contract address
+  REVENUE_SHARING: import.meta.env.VITE_REVENUE_SHARING_ADDRESS || "0x0B306BF915C4d645ff596e518fAf3F9669b97016", // RevenueSharing contract address
 };
 
 // Contract interaction interfaces
 export interface EventData {
+  id: number;
   ticketContract: string;
   organizer: string;
   name: string;
+  description: string;
   eventDate: number;
+  createdAt: number;
   isActive: boolean;
+  totalTicketsSold: number;
+  totalRevenue: string; // in ETH
+}
+
+export interface TicketType {
+  name: string;
+  price: string; // in ETH
+  maxSupply: number;
+  currentSupply: number;
+  metadataURI: string;
+}
+
+export interface CreateEventParams {
+  name: string;
+  description: string;
+  eventDate: number;
+  organizer: string;
+  ticketTypes: TicketType[];
+}
+
+export interface ContractEventResult {
+  contractEventId: number;
+  ticketContractAddress: string;
+  transactionHash: string;
 }
 
 export interface TicketPurchaseParams {
   eventId: number;
-  ticketType: number;
-  quantity: number;
-  pricePerTicket: string; // in ETH
+  ticketTypeId: number;
+  recipient: string;
+  priceInEth: string;
 }
 
 export interface TicketInfo {
+  ticketTypeId: number;
+  price: string; // in ETH
+  mintTimestamp: number;
+  isValidated: boolean;
+  isUsed: boolean;
+}
+
+export interface NFTTicketInfo {
   tokenId: number;
   owner: string;
   tokenURI: string;
   eventContract: string;
+  ticketInfo: TicketInfo;
 }
 
 // Contract interaction class
 export class ContractService {
-  private ethereum: any;
+  private provider: ethers.BrowserProvider | null = null;
+  private signer: ethers.JsonRpcSigner | null = null;
 
   constructor() {
+    this.initializeProvider();
+  }
+
+  private async initializeProvider() {
     if (typeof window !== 'undefined' && window.ethereum) {
-      this.ethereum = window.ethereum;
+      this.provider = new ethers.BrowserProvider(window.ethereum);
     }
   }
 
-  // Helper method to make contract calls
-  private async makeContractCall(
-    contractAddress: string,
-    abi: any[],
-    method: string,
-    params: any[] = [],
-    value?: string
-  ): Promise<any> {
-    if (!this.ethereum) {
+  private async getSigner(): Promise<ethers.JsonRpcSigner> {
+    if (!this.provider) {
+      throw new Error('No Web3 provider found');
+    }
+    
+    if (!this.signer) {
+      this.signer = await this.provider.getSigner();
+    }
+    
+    return this.signer;
+  }
+
+  // Get connected account
+  async getConnectedAccount(): Promise<string> {
+    const signer = await this.getSigner();
+    return await signer.getAddress();
+  }
+
+  // Helper method to get contract instance
+  private async getContract(contractAddress: string, abi: any[], needsSigner: boolean = false): Promise<ethers.Contract> {
+    if (!this.provider) {
       throw new Error('No Web3 provider found');
     }
 
+    if (needsSigner) {
+      const signer = await this.getSigner();
+      return new ethers.Contract(contractAddress, abi, signer);
+    } else {
+      return new ethers.Contract(contractAddress, abi, this.provider);
+    }
+  }
+
+
+  // Create a new event on the blockchain
+  async createContractEvent(params: CreateEventParams): Promise<ContractEventResult> {
+    const contract = await this.getContract(CONTRACT_ADDRESSES.TICKET_FACTORY, TICKET_FACTORY_ABI, true);
+    
+    const ticketTypesForContract = params.ticketTypes.map(type => ({
+      name: type.name,
+      price: ethers.parseEther(contractUtils.formatPriceForContract(type.price)),
+      maxSupply: type.maxSupply,
+      currentSupply: 0,
+      metadataURI: type.metadataURI
+    }));
+
+    const tx = await contract.createEvent(
+      params.name,
+      params.description,
+      params.eventDate,
+      params.organizer,
+      ticketTypesForContract
+    );
+    
+    // Wait for transaction to be mined
+    const receipt = await tx.wait();
+    
+    // Try to get the event counter (latest event ID)
     try {
-      // For read operations, use eth_call
-      if (!value && ['balanceOf', 'ownerOf', 'tokenURI', 'events'].includes(method)) {
-        const data = this.encodeFunction(abi, method, params);
-        const result = await this.ethereum.request({
-          method: 'eth_call',
-          params: [{
-            to: contractAddress,
-            data: data
-          }, 'latest']
-        });
-        return this.decodeResult(abi, method, result);
-      }
-
-      // For write operations, use eth_sendTransaction
-      const accounts = await this.ethereum.request({ method: 'eth_accounts' });
-      if (accounts.length === 0) {
-        throw new Error('No connected accounts');
-      }
-
-      const data = this.encodeFunction(abi, method, params);
-      const txParams: any = {
-        from: accounts[0],
-        to: contractAddress,
-        data: data
+      const eventCounter = await contract.eventCounter();
+      const contractEventId = Number(eventCounter);
+      
+      // Get the specific event data directly from contract (raw data to avoid formatting issues)
+      const rawEventData = await contract.getEvent(contractEventId);
+      const ticketContractAddress = rawEventData.ticketContract;
+      
+      return {
+        contractEventId,
+        ticketContractAddress,
+        transactionHash: tx.hash
       };
-
-      if (value) {
-        txParams.value = `0x${BigInt(parseEther(value)).toString(16)}`;
+    } catch (error) {
+      console.error('Failed to read from contract:', error);
+      
+      // Fallback: try to get event ID from transaction logs
+      try {
+        const eventCounter = await contract.eventCounter();
+        const contractEventId = Number(eventCounter);
+        
+        return {
+          contractEventId,
+          ticketContractAddress: '', // Will be empty, but event creation succeeded
+          transactionHash: tx.hash
+        };
+      } catch (fallbackError) {
+        console.error('Fallback also failed:', fallbackError);
+        throw new Error('Event created successfully but unable to retrieve event ID. Please check your contract deployment.');
       }
+    }
+  }
 
-      const txHash = await this.ethereum.request({
-        method: 'eth_sendTransaction',
-        params: [txParams]
-      });
+  // Legacy method for backward compatibility
+  async createEvent(params: CreateEventParams): Promise<string> {
+    const result = await this.createContractEvent(params);
+    return result.transactionHash;
+  }
 
-      return txHash;
+  // Purchase tickets with validation
+  async purchaseTicket(params: TicketPurchaseParams): Promise<string> {
+    // Validate contract event first
+    const eventStatus = await this.getContractEventStatus(params.eventId);
+    if (!eventStatus.exists) {
+      throw new Error('Contract event not found. Please check the event ID.');
+    }
+    if (!eventStatus.isActive) {
+      throw new Error('Event is not active for ticket sales.');
+    }
+
+    const contract = await this.getContract(CONTRACT_ADDRESSES.TICKET_FACTORY, TICKET_FACTORY_ABI, true);
+    
+    // Validate parameters
+    if (!params.recipient || !ethers.isAddress(params.recipient)) {
+      throw new Error('Invalid recipient address.');
+    }
+    if (params.ticketTypeId < 0) {
+      throw new Error('Invalid ticket type ID.');
+    }
+    if (parseFloat(params.priceInEth) <= 0) {
+      throw new Error('Invalid ticket price.');
+    }
+
+    try {
+      const tx = await contract.mintTicket(
+        params.eventId,
+        params.ticketTypeId,
+        params.recipient,
+        { value: ethers.parseEther(contractUtils.formatPriceForContract(params.priceInEth)) }
+      );
+      
+      return tx.hash;
     } catch (error: any) {
-      throw new Error(`Contract call failed: ${error.message}`);
+      // Enhanced error handling
+      if (error.message?.includes('Type sold out')) {
+        throw new Error('This ticket type is sold out.');
+      }
+      if (error.message?.includes('Insufficient payment')) {
+        throw new Error('Insufficient payment amount.');
+      }
+      if (error.message?.includes('Event is not active')) {
+        throw new Error('Event is not currently active for ticket sales.');
+      }
+      if (error.message?.includes('User denied transaction')) {
+        throw new Error('Transaction was cancelled by user.');
+      }
+      if (error.message?.includes('insufficient funds')) {
+        throw new Error('Insufficient ETH balance for this transaction.');
+      }
+      
+      // Re-throw original error if not handled
+      throw error;
     }
-  }
-
-  // Encode function call data (simplified - in production use ethers.js or web3.js)
-  private encodeFunction(abi: any[], method: string, params: any[]): string {
-    // This is a simplified implementation
-    // In production, use proper ABI encoding from ethers.js or web3.js
-    const functionAbi = abi.find(item => item.name === method);
-    if (!functionAbi) {
-      throw new Error(`Function ${method} not found in ABI`);
-    }
-    
-    // For demonstration purposes, return a placeholder
-    // In real implementation, you'd use proper ABI encoding
-    return '0x' + method.slice(0, 8).padEnd(8, '0').repeat(8);
-  }
-
-  // Decode result data (simplified - in production use ethers.js or web3.js)
-  private decodeResult(abi: any[], method: string, result: string): any {
-    // This is a simplified implementation
-    // In production, use proper ABI decoding from ethers.js or web3.js
-    return result;
-  }
-
-  // Create a new event
-  async createEvent(
-    eventName: string,
-    eventDate: number,
-    ticketTypes: { name: string; price: string; supply: number }[]
-  ): Promise<string> {
-    return await this.makeContractCall(
-      CONTRACT_ADDRESSES.TICKET_FACTORY,
-      TICKET_FACTORY_ABI,
-      'createEvent',
-      [eventName, eventDate, ticketTypes]
-    );
-  }
-
-  // Purchase tickets
-  async purchaseTickets(params: TicketPurchaseParams): Promise<string> {
-    const totalPrice = (parseFloat(params.pricePerTicket) * params.quantity).toString();
-    
-    return await this.makeContractCall(
-      CONTRACT_ADDRESSES.TICKET_FACTORY,
-      TICKET_FACTORY_ABI,
-      'mintTicket',
-      [params.eventId, params.ticketType, params.quantity],
-      totalPrice
-    );
   }
 
   // Get event information
   async getEvent(eventId: number): Promise<EventData> {
-    const result = await this.makeContractCall(
-      CONTRACT_ADDRESSES.TICKET_FACTORY,
-      TICKET_FACTORY_ABI,
-      'events',
-      [eventId]
-    );
+    try {
+      // Check if contract is deployed at the address
+      const code = await this.provider.getCode(CONTRACT_ADDRESSES.TICKET_FACTORY);
+      if (code === '0x') {
+        throw new Error(`No contract deployed at address ${CONTRACT_ADDRESSES.TICKET_FACTORY}`);
+      }
 
-    // Parse the result into EventData structure
-    // This is simplified - actual implementation would depend on your contract structure
-    return {
-      ticketContract: result[0],
-      organizer: result[1],
-      name: result[2],
-      eventDate: parseInt(result[3]),
-      isActive: result[4]
-    };
+      const contract = await this.getContract(CONTRACT_ADDRESSES.TICKET_FACTORY, TICKET_FACTORY_ABI, false);
+      
+      // Check if the method exists before calling it
+      if (typeof contract.getEvent !== 'function') {
+        throw new Error('getEvent method not found on contract');
+      }
+      
+      // First, try a simple call to check if the contract is responsive
+      try {
+        const eventCounter = await contract.eventCounter();
+        console.log(`Contract eventCounter: ${eventCounter}`);
+        
+        if (eventId > Number(eventCounter)) {
+          throw new Error(`Event ${eventId} does not exist. Current event count: ${eventCounter}`);
+        }
+      } catch (counterError: any) {
+        console.error('Failed to get event counter:', counterError);
+        throw new Error(`Contract is not responsive: ${counterError.message}`);
+      }
+      
+      // Try to call the contract method with specific error handling
+      let result;
+      try {
+        console.log(`Calling getEvent with eventId: ${eventId}`);
+        
+        // Try different ethers v6 approaches
+        try {
+          // First try: Use the contract interface directly with AbiCoder
+          const iface = new ethers.Interface(TICKET_FACTORY_ABI);
+          const callData = iface.encodeFunctionData('getEvent', [eventId]);
+          
+          console.log('Trying interface-based call with callData:', callData);
+          
+          const rawResult = await this.provider.call({
+            to: CONTRACT_ADDRESSES.TICKET_FACTORY,
+            data: callData
+          });
+          
+          console.log('Raw provider call result:', rawResult);
+          
+          // Decode the result using the interface
+          const decodedResult = iface.decodeFunctionResult('getEvent', rawResult);
+          console.log('Decoded result:', decodedResult);
+          
+          // Extract the values from the decoded result
+          const eventData = decodedResult[0]; // The tuple is the first element
+          result = {
+            id: Number(eventData.id),
+            ticketContract: eventData.ticketContract,
+            organizer: eventData.organizer,
+            name: eventData.name,
+            description: eventData.description,
+            eventDate: Number(eventData.eventDate),
+            createdAt: Number(eventData.createdAt),
+            isActive: eventData.isActive,
+            totalTicketsSold: Number(eventData.totalTicketsSold),
+            totalRevenue: eventData.totalRevenue
+          };
+          
+          console.log('Processed result:', result);
+        } catch (interfaceCallError: any) {
+          console.log('Interface call failed, trying regular call:', interfaceCallError.message);
+          
+          // Fallback to regular call (which will probably still fail)
+          result = await contract.getEvent(eventId);
+          console.log('Raw contract result (regular call):', result);
+        }
+      } catch (contractError: any) {
+        console.error('Contract call failed:', contractError);
+        
+        // Check if it's a revert (event doesn't exist)
+        if (contractError.message?.includes('revert') || contractError.message?.includes('execution reverted')) {
+          throw new Error(`Event ${eventId} does not exist in the contract`);
+        }
+        
+        // Check if it's the key.format error
+        if (contractError.message?.includes('key.format')) {
+          throw new Error(`Contract method returned invalid data format for event ${eventId}. This may be due to a version mismatch between the contract and ABI.`);
+        }
+        
+        // Re-throw with more context
+        throw new Error(`Contract call failed: ${contractError.message}`);
+      }
+
+    // Safe handling of totalRevenue formatting
+    let totalRevenue = '0';
+    try {
+      if (result.totalRevenue) {
+        totalRevenue = ethers.formatEther(result.totalRevenue);
+      }
+    } catch (error) {
+      console.warn('Failed to format totalRevenue:', error);
+      totalRevenue = '0';
+    }
+
+      return {
+        id: Number(result.id),
+        ticketContract: result.ticketContract,
+        organizer: result.organizer,
+        name: result.name,
+        description: result.description,
+        eventDate: Number(result.eventDate),
+        createdAt: Number(result.createdAt),
+        isActive: result.isActive,
+        totalTicketsSold: Number(result.totalTicketsSold),
+        totalRevenue
+      };
+    } catch (error: any) {
+      console.error(`Failed to get event ${eventId} from contract:`, error);
+      console.error('Contract address:', CONTRACT_ADDRESSES.TICKET_FACTORY);
+      console.error('Network:', await this.provider.getNetwork());
+      
+      // Provide more specific error messages
+      if (error.message?.includes('call revert exception')) {
+        throw new Error(`Event ${eventId} not found in contract. The event may not have been created on the blockchain yet.`);
+      }
+      if (error.message?.includes('contract not deployed')) {
+        throw new Error('Contract not deployed at the specified address. Please check your configuration.');
+      }
+      if (error.message?.includes('network')) {
+        throw new Error('Network connection error. Please check your wallet connection.');
+      }
+      
+      throw new Error(`Failed to retrieve event from blockchain: ${error.message || 'Unknown error'}`);
+    }
+  }
+
+  // Get ticket contract address from contract event ID
+  async getTicketContractAddress(contractEventId: number): Promise<string> {
+    const eventData = await this.getEvent(contractEventId);
+    return eventData.ticketContract;
+  }
+
+  // Validate that a contract event exists and is active
+  async validateContractEvent(contractEventId: number): Promise<boolean> {
+    try {
+      const eventData = await this.getEvent(contractEventId);
+      return eventData.isActive;
+    } catch (error) {
+      console.error('Error validating contract event:', error);
+      return false;
+    }
+  }
+
+  // Get contract event status for error handling
+  async getContractEventStatus(contractEventId: number): Promise<{
+    exists: boolean;
+    isActive: boolean;
+    ticketContract: string | null;
+    error: string | null;
+  }> {
+    try {
+      const eventData = await this.getEvent(contractEventId);
+      return {
+        exists: true,
+        isActive: eventData.isActive,
+        ticketContract: eventData.ticketContract,
+        error: null
+      };
+    } catch (error: any) {
+      return {
+        exists: false,
+        isActive: false,
+        ticketContract: null,
+        error: error.message || 'Unknown error'
+      };
+    }
+  }
+
+  // Get all events
+  async getAllEvents(): Promise<EventData[]> {
+    const contract = await this.getContract(CONTRACT_ADDRESSES.TICKET_FACTORY, TICKET_FACTORY_ABI, false);
+    const result = await contract.getAllEvents();
+
+    return result.map((event: any) => ({
+      id: Number(event.id),
+      ticketContract: event.ticketContract,
+      organizer: event.organizer,
+      name: event.name,
+      description: event.description,
+      eventDate: Number(event.eventDate),
+      createdAt: Number(event.createdAt),
+      isActive: event.isActive,
+      totalTicketsSold: Number(event.totalTicketsSold),
+      totalRevenue: ethers.formatEther(event.totalRevenue)
+    }));
+  }
+
+  // Get ticket types for an event
+  async getTicketTypes(ticketContractAddress: string): Promise<TicketType[]> {
+    const contract = await this.getContract(ticketContractAddress, TICKET_NFT_ABI, false);
+    const types: TicketType[] = [];
+    let index = 0;
+    
+    try {
+      while (true) {
+        const result = await contract.ticketTypes(index);
+        
+        if (!result || !result.name) break;
+        
+        types.push({
+          name: result.name,
+          price: ethers.formatEther(result.price),
+          maxSupply: Number(result.maxSupply),
+          currentSupply: Number(result.currentSupply),
+          metadataURI: result.metadataURI
+        });
+        
+        index++;
+      }
+    } catch (error) {
+      // End of array reached
+    }
+    
+    return types;
   }
 
   // Get user's tickets for a specific event
-  async getUserTickets(userAddress: string, ticketContractAddress: string): Promise<TicketInfo[]> {
-    const balance = await this.makeContractCall(
-      ticketContractAddress,
-      TICKET_NFT_ABI,
-      'balanceOf',
-      [userAddress]
-    );
-
-    const tickets: TicketInfo[] = [];
+  async getUserTickets(userAddress: string, ticketContractAddress: string): Promise<NFTTicketInfo[]> {
+    const contract = await this.getContract(ticketContractAddress, TICKET_NFT_ABI, false);
+    const balance = await contract.balanceOf(userAddress);
+    const tickets: NFTTicketInfo[] = [];
     
     // This is simplified - you'd need to implement proper token enumeration
     // or maintain an off-chain index of token IDs
-    for (let i = 0; i < parseInt(balance); i++) {
-      // Get token ID by index (requires additional contract methods)
-      // const tokenId = await this.getTokenByOwnerIndex(userAddress, i);
-      
-      // For demo purposes, assume sequential token IDs
-      const tokenId = i + 1;
-      
-      const tokenURI = await this.makeContractCall(
-        ticketContractAddress,
-        TICKET_NFT_ABI,
-        'tokenURI',
-        [tokenId]
-      );
+    for (let i = 1; i <= Number(balance); i++) {
+      try {
+        const owner = await contract.ownerOf(i);
+        
+        if (owner.toLowerCase() === userAddress.toLowerCase()) {
+          const tokenURI = await contract.tokenURI(i);
+          const ticketInfo = await contract.getTicketInfo(i);
 
-      tickets.push({
-        tokenId,
-        owner: userAddress,
-        tokenURI,
-        eventContract: ticketContractAddress
-      });
+          tickets.push({
+            tokenId: i,
+            owner: userAddress,
+            tokenURI,
+            eventContract: ticketContractAddress,
+            ticketInfo: {
+              ticketTypeId: Number(ticketInfo.ticketTypeId),
+              price: ethers.formatEther(ticketInfo.price),
+              mintTimestamp: Number(ticketInfo.mintTimestamp),
+              isValidated: ticketInfo.isValidated,
+              isUsed: ticketInfo.isUsed
+            }
+          });
+        }
+      } catch (error) {
+        // Token doesn't exist or other error
+        continue;
+      }
     }
 
     return tickets;
@@ -277,22 +516,43 @@ export class ContractService {
     toAddress: string,
     tokenId: number
   ): Promise<string> {
-    return await this.makeContractCall(
-      ticketContractAddress,
-      TICKET_NFT_ABI,
-      'transferFrom',
-      [fromAddress, toAddress, tokenId]
-    );
+    const contract = await this.getContract(ticketContractAddress, TICKET_NFT_ABI, true);
+    const tx = await contract.transferFrom(fromAddress, toAddress, tokenId);
+    return tx.hash;
   }
 
   // Check if user owns a specific ticket
   async checkTicketOwnership(ticketContractAddress: string, tokenId: number): Promise<string> {
-    return await this.makeContractCall(
-      ticketContractAddress,
-      TICKET_NFT_ABI,
-      'ownerOf',
-      [tokenId]
-    );
+    const contract = await this.getContract(ticketContractAddress, TICKET_NFT_ABI, false);
+    return await contract.ownerOf(tokenId);
+  }
+
+  // Validate ticket
+  async validateTicket(ticketContractAddress: string, tokenId: number): Promise<boolean> {
+    const contract = await this.getContract(ticketContractAddress, TICKET_NFT_ABI, true);
+    const tx = await contract.validateTicket(tokenId);
+    const receipt = await tx.wait();
+    return receipt.status === 1;
+  }
+
+  // Check if transfers are enabled for a ticket contract
+  async isTransferEnabled(ticketContractAddress: string): Promise<boolean> {
+    const contract = await this.getContract(ticketContractAddress, TICKET_NFT_ABI, false);
+    return await contract.transferEnabled();
+  }
+
+  // Set transfer enabled (only owner)
+  async setTransferEnabled(ticketContractAddress: string, enabled: boolean): Promise<string> {
+    const contract = await this.getContract(ticketContractAddress, TICKET_NFT_ABI, true);
+    const tx = await contract.setTransferEnabled(enabled);
+    return tx.hash;
+  }
+
+  // Get event date from ticket contract
+  async getEventDate(ticketContractAddress: string): Promise<number> {
+    const contract = await this.getContract(ticketContractAddress, TICKET_NFT_ABI, false);
+    const result = await contract.eventDate();
+    return Number(result);
   }
 }
 
@@ -324,6 +584,114 @@ export const contractUtils = {
   // Convert date to timestamp
   dateToTimestamp: (date: Date): number => {
     return Math.floor(date.getTime() / 1000);
+  },
+
+  // Create ticket types for event creation
+  createTicketType: (
+    name: string,
+    priceInEth: string,
+    maxSupply: number,
+    metadataURI: string = ""
+  ): TicketType => {
+    return {
+      name,
+      price: priceInEth,
+      maxSupply,
+      currentSupply: 0,
+      metadataURI
+    };
+  },
+
+  // Check if event is past
+  isEventPast: (eventDate: number): boolean => {
+    return eventDate < Math.floor(Date.now() / 1000);
+  },
+
+  // Check if ticket sales are open
+  isTicketSalesOpen: (event: EventData): boolean => {
+    return event.isActive && !contractUtils.isEventPast(event.eventDate);
+  },
+
+  // Check if transfers are allowed
+  areTransfersAllowed: (eventDate: number, transferEnabled: boolean): boolean => {
+    return transferEnabled || contractUtils.isEventPast(eventDate);
+  },
+
+  // Validate contract event ID
+  isValidContractEventId: (contractEventId: number | null | undefined): boolean => {
+    return contractEventId !== null && contractEventId !== undefined && contractEventId > 0;
+  },
+
+  // Format contract error messages for user display
+  formatContractError: (error: any): string => {
+    if (!error) return 'Unknown error occurred';
+    
+    const message = error.message || error.toString();
+    
+    // Common contract errors
+    if (message.includes('User denied transaction')) {
+      return 'Transaction was cancelled. Please approve the transaction to continue.';
+    }
+    if (message.includes('insufficient funds')) {
+      return 'Insufficient ETH balance. Please add more ETH to your wallet.';
+    }
+    if (message.includes('execution reverted')) {
+      return 'Transaction failed. Please check the transaction details and try again.';
+    }
+    if (message.includes('network error')) {
+      return 'Network error. Please check your internet connection and try again.';
+    }
+    if (message.includes('timeout')) {
+      return 'Transaction timeout. Please try again.';
+    }
+    
+    // Return cleaned up error message
+    return message.replace(/^Error: /, '').replace(/execution reverted: /, '');
+  },
+
+  // Safely format price for contract to avoid floating-point precision issues
+  formatPriceForContract: (price: number | string): string => {
+    const priceStr = typeof price === 'string' ? price : price.toString();
+    const priceNum = parseFloat(priceStr);
+    
+    if (isNaN(priceNum) || priceNum < 0) {
+      throw new Error('Invalid price format');
+    }
+    
+    // Round to 6 decimal places to avoid floating-point precision issues
+    // This should be sufficient for ETH prices
+    const roundedPrice = Math.round(priceNum * 1000000) / 1000000;
+    
+    // Convert to fixed decimal string to avoid scientific notation
+    return roundedPrice.toFixed(6);
+  },
+
+  // Format event date for display
+  formatEventDate: (timestamp: number): string => {
+    return new Date(timestamp * 1000).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  },
+
+  // Get ticket type availability
+  getTicketAvailability: (ticketType: TicketType): {
+    available: number;
+    percentageSold: number;
+    isSoldOut: boolean;
+  } => {
+    const available = ticketType.maxSupply - ticketType.currentSupply;
+    const percentageSold = (ticketType.currentSupply / ticketType.maxSupply) * 100;
+    const isSoldOut = available === 0;
+    
+    return {
+      available,
+      percentageSold,
+      isSoldOut
+    };
   }
 };
 

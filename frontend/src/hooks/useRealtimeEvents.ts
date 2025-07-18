@@ -119,8 +119,11 @@ export const useRealtimeTickets = (userId?: string) => {
         .from('tickets')
         .select(`
           *,
-          events(id, title, date, time, poster_image_url),
-          seat_categories(id, name, price)
+          events(id, title, date, time, poster_image_url, category),
+          artists!events_artist_id_fkey(id, name, image_url),
+          venues!events_venue_id_fkey(id, name, city, state),
+          seat_categories(id, name, price, color),
+          orders!tickets_order_id_fkey(id, purchase_date, total_price, transaction_hash)
         `)
         .eq('owner_id', userId)
         .order('created_at', { ascending: false })

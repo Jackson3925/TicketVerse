@@ -211,6 +211,7 @@ export type Database = {
           sold_tickets: number | null
           is_featured: boolean | null
           status: string | null
+          contract_event_id: number | null
           created_at: string | null
           updated_at: string | null
         }
@@ -234,6 +235,7 @@ export type Database = {
           sold_tickets?: number | null
           is_featured?: boolean | null
           status?: string | null
+          contract_event_id?: number | null
           created_at?: string | null
           updated_at?: string | null
         }
@@ -257,6 +259,7 @@ export type Database = {
           sold_tickets?: number | null
           is_featured?: boolean | null
           status?: string | null
+          contract_event_id?: number | null
           created_at?: string | null
           updated_at?: string | null
         }

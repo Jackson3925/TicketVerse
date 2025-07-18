@@ -7,6 +7,7 @@ import { Calendar, MapPin, Ticket } from "lucide-react";
 import type { Event } from "@/lib/supabase";
 
 type EventWithRelations = Event & {
+  contract_event_id?: number | null; // Add contract event ID support
   artists?: { id: string; name: string; image_url?: string }
   venues?: { id: string; name: string; city: string; state?: string; country: string }
   seat_categories?: Array<{ id: string; name: string; price: number; capacity: number; sold?: number }>
@@ -73,6 +74,14 @@ const EventCard = ({ event }: EventCardProps) => {
         <div className="absolute top-3 right-3 bg-background/90 backdrop-blur px-2 py-1 rounded-full text-sm font-semibold">
           {formatPrice(event)}
         </div>
+        {event.contract_event_id && (
+          <Badge 
+            className="absolute bottom-3 right-3 bg-green-500/90 text-white text-xs"
+            variant="default"
+          >
+            NFT
+          </Badge>
+        )}
       </div>
       
       <CardHeader className="pb-2">
@@ -103,8 +112,9 @@ const EventCard = ({ event }: EventCardProps) => {
         <Button 
           className="w-full group-hover:bg-primary/90 transition-colors"
           onClick={handleBuyTickets}
+          disabled={!event.contract_event_id}
         >
-          Buy Tickets
+          {event.contract_event_id ? 'Buy NFT Tickets' : 'Setting Up...'}
         </Button>
       </CardFooter>
     </Card>

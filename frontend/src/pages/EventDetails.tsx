@@ -13,6 +13,7 @@ import TicketPurchaseDialog from "@/components/TicketPurchaseDialog";
 import type { Event } from '@/lib/supabase';
 
 type EventWithRelations = Event & {
+  contract_event_id?: number | null; // Add contract event ID support
   artists?: { id: string; name: string; image_url?: string; verified?: boolean; description?: string }
   venues?: { 
     id: string; 
@@ -427,11 +428,18 @@ const EventDetails = () => {
                     className="w-full text-lg py-6" 
                     size="lg"
                     onClick={handlePurchase}
-                    disabled={isSoldOut()}
+                    disabled={isSoldOut() || !event.contract_event_id}
                   >
                     <Ticket className="h-5 w-5 mr-2" />
-                    {isSoldOut() ? 'Sold Out' : isAuthenticated ? 'Buy Tickets Now' : 'Sign In to Buy'}
+                    {isSoldOut() ? 'Sold Out' : 
+                     !event.contract_event_id ? 'Blockchain Setup Pending' :
+                     isAuthenticated ? 'Buy NFT Tickets' : 'Sign In to Buy'}
                   </Button>
+                  {!event.contract_event_id && (
+                    <p className="text-xs text-muted-foreground text-center">
+                      Smart contract integration in progress. Please check back soon.
+                    </p>
+                  )}
                   {!isSoldOut() && (
                     <Button variant="outline" className="w-full" size="lg">
                       <Heart className="h-4 w-4 mr-2" />
@@ -452,7 +460,17 @@ const EventDetails = () => {
       <TicketPurchaseDialog
         isOpen={isPurchaseDialogOpen}
         onClose={() => setIsPurchaseDialogOpen(false)}
-        event={event}
+        event={{
+          id: event.id,
+          contract_event_id: event.contract_event_id,
+          title: event.title,
+          artist: event.artists?.name || 'Unknown Artist',
+          date: event.date,
+          venue: event.venues?.name || 'Unknown Venue',
+          location: event.venues ? `${event.venues.city}, ${event.venues.country}` : 'Unknown Location',
+          price: getMinPrice(),
+          image: event.poster_image_url || '/placeholder.svg'
+        }}
       />
     </div>
   );

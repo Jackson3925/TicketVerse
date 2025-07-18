@@ -8,34 +8,20 @@ import { useRoleProtection } from '@/hooks/useRoleProtection';
 import Navigation from "@/components/Navigation";
 import EmptyTicketsState from "@/components/EmptyTicketsState";
 import TicketCard from "@/components/TicketCard";
+import ErrorBoundary, { TicketCardErrorFallback } from "@/components/ErrorBoundary";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Filter, Calendar, MapPin, Ticket } from "lucide-react";
-import type { Ticket as TicketType } from '@/lib/supabase';
-
-type TicketWithRelations = TicketType & {
-  events?: { 
-    id: string;
-    title: string; 
-    date: string; 
-    time: string; 
-    poster_image_url?: string;
-    category: string;
-  };
-  artists?: { id: string; name: string; image_url?: string };
-  venues?: { id: string; name: string; city: string; state?: string };
-  seat_categories?: { id: string; name: string; price: number; color?: string };
-  orders?: { id: string; purchase_date: string; total_price: number; transaction_hash?: string };
-};
+import type { TicketWithRelations } from '@/components/TicketCard';
 
 const MyTickets = () => {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
   
-  // Protect this route for customers only
-  const { hasAccess } = useRoleProtection({ requiredRole: 'customer' });
+  // Protect this route for buyers only
+  const { hasAccess } = useRoleProtection({ requiredRole: 'buyer' });
   
   if (!hasAccess) {
     return null; // useRoleProtection handles the redirect
@@ -61,12 +47,23 @@ const MyTickets = () => {
 
       try {
         setLoading(true);
+        setError(null); // Clear previous errors
         const userTickets = await ticketsAPI.getUserTickets(user.id);
         setTickets(userTickets);
-        setError(null);
       } catch (err) {
         console.error('Error loading tickets:', err);
-        setError('Failed to load your tickets. Please try again.');
+        // Provide more specific error messages
+        if (err instanceof Error) {
+          if (err.message.includes('Network')) {
+            setError('Network error. Please check your connection and try again.');
+          } else if (err.message.includes('authentication')) {
+            setError('Authentication error. Please sign in again.');
+          } else {
+            setError(`Failed to load your tickets: ${err.message}`);
+          }
+        } else {
+          setError('Failed to load your tickets. Please try again.');
+        }
       } finally {
         setLoading(false);
       }
@@ -77,7 +74,8 @@ const MyTickets = () => {
 
   // Update tickets when real-time data changes
   useEffect(() => {
-    if (realtimeTickets && realtimeTickets.length > 0) {
+    if (realtimeTickets && realtimeTickets.length >= 0) {
+      // Only update if real-time data is more recent or different
       setTickets(realtimeTickets);
     }
   }, [realtimeTickets]);
@@ -137,8 +135,8 @@ const MyTickets = () => {
     );
   }
 
-  // Loading state
-  if (loading || realtimeLoading) {
+  // Loading state - only show loading if both API and realtime are loading
+  if (loading && realtimeLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
         <Navigation />
@@ -152,6 +150,23 @@ const MyTickets = () => {
     );
   }
 
+  // Retry function
+  const retryLoadTickets = async () => {
+    if (!user) return;
+    
+    try {
+      setLoading(true);
+      setError(null);
+      const userTickets = await ticketsAPI.getUserTickets(user.id);
+      setTickets(userTickets);
+    } catch (err) {
+      console.error('Error retrying tickets load:', err);
+      setError('Failed to load your tickets. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Error state
   if (error) {
     return (
@@ -161,9 +176,14 @@ const MyTickets = () => {
           <div className="text-center py-16">
             <h2 className="text-2xl font-bold text-destructive mb-4">Oops! Something went wrong</h2>
             <p className="text-muted-foreground mb-4">{error}</p>
-            <Button onClick={() => window.location.reload()}>
-              Try Again
-            </Button>
+            <div className="flex gap-2 justify-center">
+              <Button onClick={retryLoadTickets} disabled={loading}>
+                {loading ? 'Retrying...' : 'Try Again'}
+              </Button>
+              <Button variant="outline" onClick={() => window.location.reload()}>
+                Refresh Page
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -284,7 +304,15 @@ const MyTickets = () => {
         {filteredTickets.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredTickets.map((ticket) => (
-              <TicketCard key={ticket.id} ticket={ticket} />
+              <ErrorBoundary 
+                key={ticket.id} 
+                fallback={TicketCardErrorFallback}
+                onError={(error) => {
+                  console.error('Error rendering ticket card:', error, ticket);
+                }}
+              >
+                <TicketCard ticket={ticket} />
+              </ErrorBoundary>
             ))}
           </div>
         ) : (
