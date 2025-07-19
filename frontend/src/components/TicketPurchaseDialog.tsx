@@ -12,7 +12,8 @@ import { Wallet, CreditCard, Ticket, CheckCircle, MapPin } from "lucide-react";
 import SeatSelection from "./SeatSelection";
 import { contractService, contractUtils, TicketPurchaseParams } from "@/lib/contracts";
 import { useWeb3 } from "@/hooks/useWeb3";
-import { ticketsAPI, ordersAPI } from "@/lib/api";
+import { ticketsAPI, ordersAPI, seatAssignmentsAPI } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 
 interface Event {
   id: string; // Database UUID
@@ -47,9 +48,10 @@ const TicketPurchaseDialog = ({ isOpen, onClose, event }: TicketPurchaseDialogPr
   const [selectedSeats, setSelectedSeats] = useState<Seat[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedTicketType, setSelectedTicketType] = useState<number>(0);
-  const [purchasedTokenId, setPurchasedTokenId] = useState<string | null>(null);
+  const [purchasedTokenIds, setPurchasedTokenIds] = useState<number[]>([]);
   const { toast } = useToast();
   const { wallet, isConnected, connectWallet } = useWeb3();
+  const { user } = useAuth();
   const account = wallet?.address;
 
   const handleConnectWallet = async () => {
@@ -93,80 +95,119 @@ const TicketPurchaseDialog = ({ isOpen, onClose, event }: TicketPurchaseDialogPr
     setIsProcessing(true);
     
     try {
-      // Get ticket type price from selectedSeats or use a default
-      const ticketPrice = selectedSeats.length > 0 ? selectedSeats[0].price : "0.1";
+      // Get ticket contract address to fetch ticket types and validate prices
+      const ticketContractAddress = await contractService.getTicketContractAddress(event.contract_event_id);
+      const contractTicketTypes = await contractService.getTicketTypes(ticketContractAddress);
       
-      // Prepare purchase parameters using contract_event_id
-      const purchaseParams: TicketPurchaseParams = {
-        eventId: event.contract_event_id, // Use contract event ID instead of database UUID
-        ticketTypeId: selectedTicketType,
-        recipient: account,
-        priceInEth: ticketPrice.replace(' ETH', '')
-      };
-
-      // Step 1: Create order in database first
-      const totalPrice = selectedSeats.reduce((sum, seat) => 
-        sum + parseFloat(seat.price.replace(' ETH', '')), 0
+      if (contractTicketTypes.length === 0) {
+        throw new Error('No ticket types found for this event');
+      }
+      
+      // Get the first selected seat to determine category and price
+      const firstSeat = selectedSeats[0];
+      const databasePrice = parseFloat(firstSeat.price.replace(' ETH', ''));
+      
+      // Find matching ticket type by price (for now, use first available or match by price)
+      let matchedTicketTypeId = 0;
+      let contractPrice = contractTicketTypes[0].price;
+      
+      // Try to find exact price match
+      const exactMatch = contractTicketTypes.findIndex(tt => 
+        Math.abs(parseFloat(tt.price) - databasePrice) < 0.0001 // Allow small precision difference
       );
       
-      // Find seat category ID for the first selected seat
-      const firstSeat = selectedSeats[0];
+      if (exactMatch >= 0) {
+        matchedTicketTypeId = exactMatch;
+        contractPrice = contractTicketTypes[exactMatch].price;
+      } else {
+        console.warn(`No exact price match found. Database: ${databasePrice} ETH, Available contract prices:`, 
+          contractTicketTypes.map(tt => tt.price));
+        // Use the first ticket type as fallback
+        contractPrice = contractTicketTypes[0].price;
+      }
+      
+      console.log(`Using ticket type ${matchedTicketTypeId} with price ${contractPrice} ETH`);
+      
+      // Prepare purchase parameters using validated contract price
+      const purchaseParams: TicketPurchaseParams = {
+        eventId: event.contract_event_id, // Use contract event ID instead of database UUID
+        ticketTypeId: matchedTicketTypeId,
+        recipient: account,
+        priceInEth: contractPrice // Use exact contract price
+      };
+
+      // Calculate total price using validated contract price for all seats
+      const totalPrice = selectedSeats.length * parseFloat(contractPrice);
+      
+      // Find seat category ID using the already defined firstSeat
       const seatCategoryId = await ticketsAPI.findSeatCategoryId(event.id, firstSeat.category);
       
       if (!seatCategoryId) {
         throw new Error(`Seat category '${firstSeat.category}' not found for event`);
       }
       
+      // Step 1: Call contract to purchase tickets and get real token IDs
+      const purchaseResults = [];
+      
+      // Purchase tickets one by one to get individual token IDs
+      for (let i = 0; i < selectedSeats.length; i++) {
+        const result = await contractService.purchaseTicket(purchaseParams);
+        purchaseResults.push(result);
+        console.log(`Ticket ${i + 1} purchased - Token ID: ${result.tokenId}, Transaction: ${result.transactionHash}`);
+      }
+
+      // Step 2: Create order in database with confirmed status and first transaction hash
       const orderData = {
         event_id: event.id,
         seat_category_id: seatCategoryId,
         quantity: selectedSeats.length,
-        unit_price: parseFloat(firstSeat.price.replace(' ETH', '')),
-        total_price: totalPrice
+        unit_price: parseFloat(contractPrice),
+        total_price: totalPrice,
+        status: 'confirmed',
+        transaction_hash: purchaseResults[0].transactionHash
       };
       
-      console.log('Creating order:', orderData);
+      console.log('Creating confirmed order:', orderData);
       const order = await ordersAPI.createOrder(orderData);
-      console.log('Order created:', order);
-
-      // Step 2: Call contract to purchase ticket
-      const txHash = await contractService.purchaseTicket(purchaseParams);
-      console.log('Ticket purchase transaction:', txHash);
+      console.log('Order created with confirmed status:', order);
       
-      // Step 3: Update order with transaction hash
-      try {
-        await ordersAPI.updateOrderStatus(order.id, 'confirmed', txHash);
-        console.log('Order status updated to confirmed');
-      } catch (updateError) {
-        console.warn('Failed to update order status, but continuing with ticket creation:', updateError);
-        // Continue with ticket creation even if order update fails
-      }
-      
-      // Step 4: Create tickets in database
+      // Step 3: Create tickets in database with real token IDs
       const ticketPromises = selectedSeats.map(async (seat, i) => {
+        const purchaseResult = purchaseResults[i];
         const ticketData = {
-          token_id: Date.now() + i, // Temporary - should get from contract event
+          token_id: purchaseResult.tokenId, // ✅ Using real token ID from blockchain
           order_id: order.id,
           event_id: event.id,
           seat_category_id: seatCategoryId,
-          ticket_number: `TKT-${Date.now()}-${i + 1}`,
+          ticket_number: `TKT-${purchaseResult.tokenId}`,
           seat_row: seat.row === 'AUTO' ? null : seat.row,
           seat_number: seat.row === 'AUTO' ? null : seat.number.toString()
         };
         
-        console.log('Creating ticket:', ticketData);
+        console.log('Creating ticket with real token ID:', ticketData);
         return await ticketsAPI.createTicket(ticketData);
       });
       
       const createdTickets = await Promise.all(ticketPromises);
-      console.log('Tickets created:', createdTickets);
+      console.log('Tickets created with real token IDs:', createdTickets);
       
-      setPurchasedTokenId(txHash);
+      // Step 4: Confirm seat assignments in database
+      if (user) {
+        try {
+          await seatAssignmentsAPI.confirmSeatPurchase(event.id, user.id, order.id);
+          console.log('Seat assignments confirmed and marked as sold');
+        } catch (seatError) {
+          console.error('Error confirming seat assignments:', seatError);
+          // Don't fail the whole purchase for seat assignment issues
+        }
+      }
+      
+      setPurchasedTokenIds(purchaseResults.map(r => r.tokenId));
       setStep(4);
       
       toast({
         title: "Purchase Successful!",
-        description: `NFT ticket purchased successfully. Transaction: ${txHash.slice(0, 10)}...`,
+        description: `${selectedSeats.length} NFT ticket${selectedSeats.length > 1 ? 's' : ''} purchased! Token IDs: ${purchaseResults.map(r => r.tokenId).join(', ')}`,
       });
     } catch (error: any) {
       console.error('Error purchasing ticket:', error);
@@ -185,7 +226,7 @@ const TicketPurchaseDialog = ({ isOpen, onClose, event }: TicketPurchaseDialogPr
     setQuantity(1);
     setSelectedSeats([]);
     setSelectedTicketType(0);
-    setPurchasedTokenId(null);
+    setPurchasedTokenIds([]);
     setIsProcessing(false);
     onClose();
   };
@@ -338,9 +379,9 @@ const TicketPurchaseDialog = ({ isOpen, onClose, event }: TicketPurchaseDialogPr
                 </p>
                 <div className="mt-2 text-sm space-y-1">
                   <div><strong>Seats:</strong> {selectedSeats.map(s => s.id).join(', ')}</div>
-                  {purchasedTokenId && (
-                    <div className="break-all">
-                      <strong>Transaction:</strong> {purchasedTokenId.slice(0, 20)}...
+                  {purchasedTokenIds.length > 0 && (
+                    <div>
+                      <strong>Token IDs:</strong> {purchasedTokenIds.join(', ')}
                     </div>
                   )}
                 </div>

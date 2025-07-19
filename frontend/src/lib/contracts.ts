@@ -188,8 +188,8 @@ export class ContractService {
     return result.transactionHash;
   }
 
-  // Purchase tickets with validation
-  async purchaseTicket(params: TicketPurchaseParams): Promise<string> {
+  // Purchase tickets with validation - returns token ID
+  async purchaseTicket(params: TicketPurchaseParams): Promise<{ tokenId: number; transactionHash: string }> {
     // Validate contract event first
     const eventStatus = await this.getContractEventStatus(params.eventId);
     if (!eventStatus.exists) {
@@ -220,7 +220,54 @@ export class ContractService {
         { value: ethers.parseEther(contractUtils.formatPriceForContract(params.priceInEth)) }
       );
       
-      return tx.hash;
+      // Wait for transaction to be mined
+      const receipt = await tx.wait();
+      
+      // Extract token ID from the TicketMinted event
+      let tokenId: number | null = null;
+      
+      // Look for TicketMinted event from either TicketFactory or TicketNFT contract
+      for (const log of receipt.logs) {
+        try {
+          // Try parsing with TicketFactory ABI first
+          const factoryInterface = new ethers.Interface(TICKET_FACTORY_ABI);
+          const parsedLog = factoryInterface.parseLog({
+            topics: log.topics,
+            data: log.data
+          });
+          
+          if (parsedLog && parsedLog.name === 'TicketMinted') {
+            tokenId = Number(parsedLog.args.tokenId);
+            break;
+          }
+        } catch (error) {
+          // Try parsing with TicketNFT ABI if TicketFactory fails
+          try {
+            const nftInterface = new ethers.Interface(TICKET_NFT_ABI);
+            const parsedLog = nftInterface.parseLog({
+              topics: log.topics,
+              data: log.data
+            });
+            
+            if (parsedLog && parsedLog.name === 'TicketMinted') {
+              tokenId = Number(parsedLog.args.tokenId);
+              break;
+            }
+          } catch (innerError) {
+            // Continue to next log
+            continue;
+          }
+        }
+      }
+      
+      if (tokenId === null) {
+        throw new Error('Could not extract token ID from transaction receipt');
+      }
+      
+      return {
+        tokenId,
+        transactionHash: tx.hash
+      };
     } catch (error: any) {
       // Enhanced error handling
       if (error.message?.includes('Type sold out')) {

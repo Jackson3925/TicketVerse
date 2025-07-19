@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { eventsAPI } from '@/lib/api';
-import { useRealtimeEventAvailability } from '@/hooks/useRealtimeEvents';
+import { useRealtimeEventAvailability, useRealtimeSeatCategories } from '@/hooks/useRealtimeEvents';
 import { useAuth } from '@/hooks/useAuth';
 import Navigation from "@/components/Navigation";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -48,6 +48,7 @@ const EventDetails = () => {
 
   // Real-time availability updates
   const { availability } = useRealtimeEventAvailability(id || '');
+  const { seatCategories: realtimeSeatCategories } = useRealtimeSeatCategories(id || '');
 
   // Load event data
   useEffect(() => {
@@ -81,14 +82,24 @@ const EventDetails = () => {
 
   // Update event with real-time availability
   useEffect(() => {
-    if (availability && event) {
+    if (availability) {
       setEvent(prev => prev ? {
         ...prev,
         total_tickets: availability.total_tickets,
         sold_tickets: availability.total_tickets - availability.remaining
       } : null);
     }
-  }, [availability, event]);
+  }, [availability]);
+
+  // Update event with real-time seat categories
+  useEffect(() => {
+    if (realtimeSeatCategories.length > 0) {
+      setEvent(prev => prev ? {
+        ...prev,
+        seat_categories: realtimeSeatCategories
+      } : null);
+    }
+  }, [realtimeSeatCategories]);
 
   // Utility functions
   const formatDate = (dateString: string) => {
@@ -109,18 +120,29 @@ const EventDetails = () => {
     return `$${minPrice}`
   };
 
-  const getTicketsLeft = () => {
-    if (!event?.total_tickets || event.sold_tickets === undefined) {
-      return 0
+  const getTotalTickets = () => {
+    if (!event?.seat_categories || event.seat_categories.length === 0) {
+      return event?.total_tickets || 0;
     }
-    return event.total_tickets - event.sold_tickets
+    return event.seat_categories.reduce((sum, cat) => sum + cat.capacity, 0);
+  };
+
+  const getTotalSold = () => {
+    if (!event?.seat_categories || event.seat_categories.length === 0) {
+      return event?.sold_tickets || 0;
+    }
+    return event.seat_categories.reduce((sum, cat) => sum + cat.sold, 0);
+  };
+
+  const getTicketsLeft = () => {
+    return getTotalTickets() - getTotalSold();
   };
 
   const getSoldPercentage = () => {
-    if (!event?.total_tickets || event.sold_tickets === undefined) {
-      return 0
-    }
-    return (event.sold_tickets / event.total_tickets) * 100
+    const total = getTotalTickets();
+    const sold = getTotalSold();
+    if (total === 0) return 0;
+    return (sold / total) * 100;
   };
 
   const isSoldOut = () => {
@@ -376,7 +398,7 @@ const EventDetails = () => {
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-sm font-medium">Tickets Available</span>
                     <span className="text-sm text-muted-foreground">
-                      {getTicketsLeft()} of {event.total_tickets}
+                      {getTicketsLeft()} of {getTotalTickets()}
                     </span>
                   </div>
                   <div className="w-full bg-muted rounded-full h-2">

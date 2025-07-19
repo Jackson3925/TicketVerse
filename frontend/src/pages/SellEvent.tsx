@@ -25,6 +25,9 @@ interface SeatCategory {
   capacity: number;
   color: string;
   nftImage?: string;
+  totalRows: number;
+  seatsPerRow: number;
+  rowPrefix: string;
 }
 
 type Venue = Database['public']['Tables']['venues']['Row'];
@@ -70,9 +73,9 @@ const SellEvent = () => {
   });
 
   const [seatCategories, setSeatCategories] = useState<SeatCategory[]>([
-    { name: "VIP", price: "0.45", capacity: 50, color: "#fbbf24" },
-    { name: "Premium", price: "0.35", capacity: 100, color: "#3b82f6" },
-    { name: "Standard", price: "0.25", capacity: 200, color: "#6b7280" }
+    { name: "VIP", price: "0.45", capacity: 50, color: "#fbbf24", totalRows: 5, seatsPerRow: 10, rowPrefix: "V" },
+    { name: "Premium", price: "0.35", capacity: 100, color: "#3b82f6", totalRows: 10, seatsPerRow: 10, rowPrefix: "P" },
+    { name: "Standard", price: "0.25", capacity: 200, color: "#6b7280", totalRows: 20, seatsPerRow: 10, rowPrefix: "S" }
   ]);
 
   const [nftImageOption, setNftImageOption] = useState<"single" | "category">("single");
@@ -121,7 +124,18 @@ const SellEvent = () => {
 
   const updateSeatCategory = (index: number, field: keyof SeatCategory, value: string | number) => {
     setSeatCategories(prev => 
-      prev.map((cat, i) => i === index ? { ...cat, [field]: value } : cat)
+      prev.map((cat, i) => {
+        if (i !== index) return cat;
+        
+        const updatedCat = { ...cat, [field]: value };
+        
+        // Auto-update capacity when rows or seats per row change
+        if (field === 'totalRows' || field === 'seatsPerRow') {
+          updatedCat.capacity = (updatedCat.totalRows || 0) * (updatedCat.seatsPerRow || 0);
+        }
+        
+        return updatedCat;
+      })
     );
   };
 
@@ -130,7 +144,10 @@ const SellEvent = () => {
       name: "",
       price: "0.25",
       capacity: 50,
-      color: "#6b7280"
+      color: "#6b7280",
+      totalRows: 5,
+      seatsPerRow: 10,
+      rowPrefix: "R"
     }]);
   };
 
@@ -186,6 +203,12 @@ const SellEvent = () => {
         if (!category.name.trim()) errors.push(`Seat category ${index + 1} name is required`);
         if (!category.price || parseFloat(category.price) <= 0) errors.push(`Seat category ${index + 1} must have a valid price`);
         if (!category.capacity || category.capacity <= 0) errors.push(`Seat category ${index + 1} must have a valid capacity`);
+        if (!category.totalRows || category.totalRows <= 0) errors.push(`Seat category ${index + 1} must have valid number of rows`);
+        if (!category.seatsPerRow || category.seatsPerRow <= 0) errors.push(`Seat category ${index + 1} must have valid seats per row`);
+        if (!category.rowPrefix.trim()) errors.push(`Seat category ${index + 1} must have a row prefix`);
+        if (category.totalRows * category.seatsPerRow !== category.capacity) {
+          errors.push(`Seat category ${index + 1}: Total rows (${category.totalRows}) × Seats per row (${category.seatsPerRow}) must equal capacity (${category.capacity})`);
+        }
       });
     }
     
@@ -247,7 +270,10 @@ const SellEvent = () => {
         price: parseFloat(category.price),
         capacity: category.capacity,
         color: category.color,
-        nft_image_url: nftImageOption === "category" ? category.nftImage : singleNftImage
+        nft_image_url: nftImageOption === "category" ? category.nftImage : singleNftImage,
+        total_rows: category.totalRows,
+        seats_per_row: category.seatsPerRow,
+        row_prefix: category.rowPrefix.trim()
       }));
       
       console.log('Seat categories data being sent:', seatCategoriesData);
@@ -602,14 +628,49 @@ const SellEvent = () => {
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label>Capacity</Label>
+                      <Label>Row Prefix</Label>
                       <Input
-                        type="number"
-                        placeholder="100"
-                        value={category.capacity}
-                        onChange={(e) => updateSeatCategory(index, "capacity", parseInt(e.target.value) || 0)}
+                        placeholder="e.g., V, A, R1"
+                        value={category.rowPrefix}
+                        onChange={(e) => updateSeatCategory(index, "rowPrefix", e.target.value)}
                       />
                     </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label>Total Rows</Label>
+                      <Input
+                        type="number"
+                        placeholder="5"
+                        value={category.totalRows}
+                        onChange={(e) => updateSeatCategory(index, "totalRows", parseInt(e.target.value) || 0)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Seats per Row</Label>
+                      <Input
+                        type="number"
+                        placeholder="10"
+                        value={category.seatsPerRow}
+                        onChange={(e) => updateSeatCategory(index, "seatsPerRow", parseInt(e.target.value) || 0)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Capacity (Auto-calculated)</Label>
+                      <Input
+                        type="number"
+                        placeholder="50"
+                        value={category.totalRows * category.seatsPerRow}
+                        onChange={(e) => updateSeatCategory(index, "capacity", parseInt(e.target.value) || 0)}
+                        className="bg-muted"
+                        readOnly
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="text-xs text-muted-foreground">
+                    Seats will be auto-assigned as: {category.rowPrefix}1-1, {category.rowPrefix}1-2, ... {category.rowPrefix}{category.totalRows}-{category.seatsPerRow}
                   </div>
                 </div>
               ))}

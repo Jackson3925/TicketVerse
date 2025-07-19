@@ -441,6 +441,78 @@ export const useRealtimeEventAvailability = (eventId: string) => {
 }
 
 // ================================
+// REAL-TIME SEAT CATEGORIES AVAILABILITY HOOK
+// ================================
+
+export const useRealtimeSeatCategories = (eventId: string) => {
+  const [seatCategories, setSeatCategories] = useState<Array<{
+    id: string
+    name: string
+    price: number
+    capacity: number
+    sold: number
+    color?: string
+    nft_image_url?: string
+  }>>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<Error | null>(null)
+
+  const loadSeatCategories = useCallback(async () => {
+    if (!eventId) return
+
+    try {
+      setLoading(true)
+      const { data, error } = await supabase
+        .from('seat_categories')
+        .select('id, name, price, capacity, sold, color, nft_image_url')
+        .eq('event_id', eventId)
+
+      if (error) throw error
+
+      setSeatCategories(data || [])
+      setError(null)
+    } catch (err) {
+      console.error('Error loading seat categories:', err)
+      setError(err as Error)
+    } finally {
+      setLoading(false)
+    }
+  }, [eventId])
+
+  useEffect(() => {
+    loadSeatCategories()
+
+    // Subscribe to changes for seat categories of this event
+    const subscription = supabase
+      .channel(`seat_categories_event_${eventId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'seat_categories',
+          filter: `event_id=eq.${eventId}`
+        },
+        (payload) => {
+          console.log('Seat category change received:', payload)
+          const updatedCategory = payload.new as any
+          
+          setSeatCategories(prev => prev.map(cat => 
+            cat.id === updatedCategory.id ? updatedCategory : cat
+          ))
+        }
+      )
+      .subscribe()
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [loadSeatCategories, eventId])
+
+  return { seatCategories, loading, error, refetch: loadSeatCategories }
+}
+
+// ================================
 // REAL-TIME NOTIFICATIONS HOOK
 // ================================
 

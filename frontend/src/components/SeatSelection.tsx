@@ -4,7 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Plus, Minus, Loader2 } from "lucide-react";
-import { ticketsAPI } from "@/lib/api";
+import { ticketsAPI, seatAssignmentsAPI } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 
 interface Seat {
   id: string;
@@ -28,6 +29,7 @@ interface CategorySelection {
 
 const SeatSelection = ({ maxSeats, onSeatsChange, selectedSeats, eventId }: SeatSelectionProps) => {
   const [categorySelections, setCategorySelections] = useState<CategorySelection>({});
+  const { user } = useAuth();
 
   const [seatAvailability, setSeatAvailability] = useState<{
     categories: Array<{
@@ -132,34 +134,49 @@ const SeatSelection = ({ maxSeats, onSeatsChange, selectedSeats, eventId }: Seat
     }
   };
 
-  const handleAutoAssign = () => {
-    if (!seatAvailability) return;
+  const handleAutoAssign = async () => {
+    if (!seatAvailability || !user) return;
     
     const assignedSeats: Seat[] = [];
     
-    Object.entries(categorySelections).forEach(([categoryName, quantity]) => {
-      if (quantity > 0) {
-        const categoryData = seatAvailability.categories.find(cat => 
-          cat.name.toLowerCase() === categoryName.toLowerCase()
-        );
-        
-        if (categoryData && quantity <= categoryData.available) {
-          // Generate seat assignments for this category
-          for (let i = 0; i < quantity; i++) {
-            assignedSeats.push({
-              id: `${categoryName}-${i + 1}`,
-              row: 'AUTO',
-              number: i + 1,
-              price: `${categoryData.price} ETH`,
-              status: 'selected',
-              category: categoryName
+    try {
+      // Reserve seats for each category using database functions
+      for (const [categoryName, quantity] of Object.entries(categorySelections)) {
+        if (quantity > 0) {
+          const categoryData = seatAvailability.categories.find(cat => 
+            cat.name.toLowerCase() === categoryName.toLowerCase()
+          );
+          
+          if (categoryData && quantity <= categoryData.available) {
+            // Call database function to reserve specific seats
+            const reservedSeats = await seatAssignmentsAPI.reserveSeats(
+              eventId,
+              categoryData.id,
+              quantity,
+              user.id
+            );
+            
+            // Convert database results to Seat objects
+            reservedSeats.forEach((seat: any) => {
+              assignedSeats.push({
+                id: seat.display_seat, // e.g., "V1-1", "P2-3"
+                row: `${seat.row_number}`,
+                number: seat.seat_number,
+                price: `${categoryData.price} ETH`,
+                status: 'selected',
+                category: categoryName
+              });
             });
           }
         }
       }
-    });
-    
-    onSeatsChange(assignedSeats);
+      
+      onSeatsChange(assignedSeats);
+    } catch (error) {
+      console.error('Error reserving seats:', error);
+      // Fallback to showing error or empty selection
+      onSeatsChange([]);
+    }
   };
 
   useEffect(() => {

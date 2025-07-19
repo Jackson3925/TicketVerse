@@ -214,6 +214,28 @@ export const eventsAPI = {
         metadataURI: cat.nft_image_url || `ipfs://default-${cat.name.toLowerCase()}`
       }));
 
+      // Debug: Log the data being sent to smart contract
+      console.log('Smart contract data:', {
+        name: eventData.title,
+        description: eventData.description || '',
+        eventDate: eventTimestamp,
+        eventDateReadable: new Date(eventTimestamp * 1000).toISOString(),
+        organizer: organizerWalletAddress,
+        ticketTypes
+      });
+
+      // Check contract ownership before creating event
+      const { contractService, TICKET_FACTORY_ABI } = await import('./contracts');
+      const contract = await contractService.getContract(
+        '0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82', // TicketFactory address
+        TICKET_FACTORY_ABI, 
+        false
+      );
+      const contractOwner = await contract.owner();
+      console.log('Contract owner:', contractOwner);
+      console.log('Your address:', organizerWalletAddress);
+      console.log('Are you owner?', contractOwner.toLowerCase() === organizerWalletAddress.toLowerCase());
+
       const contractResult = await contractService.createContractEvent({
         name: eventData.title,
         description: eventData.description || '',
@@ -669,6 +691,60 @@ export const artistsAPI = {
 }
 
 // ================================
+// SEAT ASSIGNMENTS API  
+// ================================
+
+export const seatAssignmentsAPI = {
+  // Reserve seats temporarily (10 minutes)
+  async reserveSeats(eventId: string, categoryId: string, quantity: number, userId: string) {
+    const { data, error } = await supabase.rpc('reserve_seats_auto', {
+      p_event_id: eventId,
+      p_seat_category_id: categoryId,
+      p_quantity: quantity,
+      p_user_id: userId
+    });
+
+    if (error) {
+      console.error('Error reserving seats:', error);
+      throw error;
+    }
+
+    return data || [];
+  },
+
+  // Confirm seat purchase after payment success
+  async confirmSeatPurchase(eventId: string, userId: string, orderId: string) {
+    const { data, error } = await supabase.rpc('confirm_seat_purchase', {
+      p_event_id: eventId,
+      p_user_id: userId,
+      p_order_id: orderId
+    });
+
+    if (error) {
+      console.error('Error confirming seat purchase:', error);
+      throw error;
+    }
+
+    return data;
+  },
+
+  // Get seat availability for an event
+  async getSeatAvailability(eventId: string) {
+    const { data, error } = await supabase
+      .from('seat_availability')
+      .select('*')
+      .eq('event_id', eventId);
+
+    if (error) {
+      console.error('Error fetching seat availability:', error);
+      throw error;
+    }
+
+    return data || [];
+  }
+};
+
+// ================================
 // TICKETS API  
 // ================================
 
@@ -919,6 +995,8 @@ export const ordersAPI = {
     quantity: number
     unit_price: number
     total_price: number
+    status?: string
+    transaction_hash?: string
   }): Promise<Order> {
     const user = await supabase.auth.getUser()
     
