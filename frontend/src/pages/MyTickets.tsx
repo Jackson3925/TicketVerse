@@ -86,8 +86,8 @@ const MyTickets = () => {
     const searchLower = searchQuery.toLowerCase();
     const matchesSearch = !searchQuery || 
       ticket.events?.title.toLowerCase().includes(searchLower) ||
-      ticket.artists?.name.toLowerCase().includes(searchLower) ||
-      ticket.venues?.name.toLowerCase().includes(searchLower);
+      ticket.events?.artists?.name.toLowerCase().includes(searchLower) ||
+      ticket.events?.venues?.name.toLowerCase().includes(searchLower);
 
     // Status filter
     const now = new Date();
@@ -341,9 +341,6 @@ const MyTickets = () => {
               <Button onClick={() => navigate('/browse-events')}>
                 <Ticket className="h-4 w-4 mr-2" />
                 Buy More Tickets
-              </Button>
-              <Button variant="outline" onClick={() => navigate('/transfer')}>
-                Transfer Tickets
               </Button>
               <Button variant="outline" onClick={() => navigate('/orders')}>
                 View Order History

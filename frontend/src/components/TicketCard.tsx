@@ -14,9 +14,9 @@ type TicketWithRelations = Ticket & {
     time: string; 
     poster_image_url?: string;
     category: string;
+    artists?: { id: string; name: string; image_url?: string };
+    venues?: { id: string; name: string; city: string; state?: string };
   };
-  artists?: { id: string; name: string; image_url?: string };
-  venues?: { id: string; name: string; city: string; state?: string };
   seat_categories?: { id: string; name: string; price: number; color?: string };
   orders?: { id: string; purchase_date: string; total_price: number; transaction_hash?: string };
 };
@@ -28,11 +28,11 @@ interface TicketCardProps {
 const TicketCard = ({ ticket }: TicketCardProps) => {
   // Extract data with fallbacks
   const eventTitle = ticket.events?.title || 'Unknown Event';
-  const artistName = ticket.artists?.name || 'Unknown Artist';
+  const artistName = ticket.events?.artists?.name || 'Unknown Artist';
   const eventDate = ticket.events?.date || '';
   const eventTime = ticket.events?.time || '';
-  const venueName = ticket.venues?.name || 'Unknown Venue';
-  const venueLocation = ticket.venues ? `${ticket.venues.city}${ticket.venues.state ? `, ${ticket.venues.state}` : ''}` : 'Unknown Location';
+  const venueName = ticket.events?.venues?.name || 'Unknown Venue';
+  const venueLocation = ticket.events?.venues ? `${ticket.events.venues.city}${ticket.events.venues.state ? `, ${ticket.events.venues.state}` : ''}` : 'Unknown Location';
   const seatCategoryName = ticket.seat_categories?.name || 'General Admission';
   const price = ticket.seat_categories?.price ? `$${ticket.seat_categories.price.toFixed(2)}` : 'N/A';
   const posterImage = ticket.events?.poster_image_url || '/placeholder-event.jpg';

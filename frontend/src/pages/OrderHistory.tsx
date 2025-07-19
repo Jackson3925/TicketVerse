@@ -40,9 +40,9 @@ const OrderHistory = () => {
   const orders = realOrders?.map(order => ({
     id: order.id,
     eventTitle: order.events?.title || 'Unknown Event',
-    artist: 'Various Artists', // You might need to add artist relation to orders
+    artist: order.artists?.name || 'Unknown Artist',
     date: order.events?.date || '',
-    venue: 'TBD', // You might need to add venue relation to orders
+    venue: order.venues?.name || 'Unknown Venue',
     location: 'TBD',
     purchaseDate: order.purchase_date || order.created_at,
     price: `${order.total_price} ETH`,
@@ -104,9 +104,8 @@ const OrderHistory = () => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'completed': return 'bg-green-100 text-green-800';
+      case 'confirmed': return 'bg-green-100 text-green-800';
       case 'pending': return 'bg-yellow-100 text-yellow-800';
-      case 'refunded': return 'bg-red-100 text-red-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -120,7 +119,7 @@ const OrderHistory = () => {
   };
 
   const totalSpent = orders
-    .filter(order => order.status === 'completed')
+    .filter(order => order.status === 'confirmed')
     .reduce((sum, order) => sum + parseFloat(order.price.replace(' ETH', '')), 0);
 
   return (
@@ -152,8 +151,8 @@ const OrderHistory = () => {
           </Card>
           <Card>
             <CardContent className="pt-6">
-              <div className="text-2xl font-bold">{orders.filter(o => o.status === 'completed').length}</div>
-              <p className="text-sm text-muted-foreground">Completed</p>
+              <div className="text-2xl font-bold">{orders.filter(o => o.status === 'confirmed').length}</div>
+              <p className="text-sm text-muted-foreground">Comfirmed</p>
             </CardContent>
           </Card>
           <Card>
@@ -187,9 +186,8 @@ const OrderHistory = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="confirmed">Confirmed</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="cancelled">Cancelled</SelectItem>
                 </SelectContent>
               </Select>
 
