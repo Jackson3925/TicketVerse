@@ -18,6 +18,7 @@ import CreateArtistModal from "@/components/CreateArtistModal";
 import type { Artist, Database } from '@/lib/supabase';
 import { contractService, contractUtils, CreateEventParams, TicketType } from '@/lib/contracts';
 import { useWeb3 } from '@/hooks/useWeb3';
+import { PinataService } from '@/lib/pinata';
 
 interface SeatCategory {
   name: string;
@@ -25,6 +26,7 @@ interface SeatCategory {
   capacity: number;
   color: string;
   nftImage?: string;
+  nftImageFile?: File;
   totalRows: number;
   seatsPerRow: number;
   rowPrefix: string;
@@ -80,6 +82,7 @@ const SellEvent = () => {
 
   const [nftImageOption, setNftImageOption] = useState<"single" | "category">("single");
   const [singleNftImage, setSingleNftImage] = useState("");
+  const [singleNftImageFile, setSingleNftImageFile] = useState<File | null>(null);
 
   const eventCategories = ["Concert", "Festival", "Theater", "Sports", "Comedy", "Conference", "Electronic", "Rock", "Pop", "Jazz", "Hip-Hop", "Classical", "Country", "R&B"];
 
@@ -166,6 +169,7 @@ const SellEvent = () => {
           setEventData(prev => ({ ...prev, seatArrangementImage: e.target?.result as string }));
         } else if (type === 'singleNft') {
           setSingleNftImage(e.target?.result as string);
+          setSingleNftImageFile(file);
         }
       };
       reader.readAsDataURL(file);
@@ -178,10 +182,42 @@ const SellEvent = () => {
       const reader = new FileReader();
       reader.onload = (e) => {
         setSeatCategories(prev => 
-          prev.map((cat, i) => i === index ? { ...cat, nftImage: e.target?.result as string } : cat)
+          prev.map((cat, i) => i === index ? { 
+            ...cat, 
+            nftImage: e.target?.result as string,
+            nftImageFile: file
+          } : cat)
         );
       };
       reader.readAsDataURL(file);
+    }
+  };
+
+  const uploadNftImagesToIPFS = async () => {
+    const uploadedImages: { [key: string]: string } = {};
+    
+    try {
+      // Upload single NFT image if using single option
+      if (nftImageOption === "single" && singleNftImageFile) {
+        const uploadResult = await PinataService.uploadFile(singleNftImageFile);
+        uploadedImages.singleNft = uploadResult.url;
+      }
+      
+      // Upload category NFT images if using category option
+      if (nftImageOption === "category") {
+        for (let i = 0; i < seatCategories.length; i++) {
+          const category = seatCategories[i];
+          if (category.nftImageFile) {
+            const uploadResult = await PinataService.uploadFile(category.nftImageFile);
+            uploadedImages[`category-${i}`] = uploadResult.url;
+          }
+        }
+      }
+      
+      return uploadedImages;
+    } catch (error) {
+      console.error('Error uploading NFT images to IPFS:', error);
+      throw new Error(`Failed to upload NFT images: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -264,13 +300,24 @@ const SellEvent = () => {
         throw new Error('Seller profile not found. Please complete your seller registration.');
       }
 
+      // Upload NFT images to IPFS first
+      toast({
+        title: "Uploading NFT Images",
+        description: "Uploading your NFT images to IPFS...",
+        variant: "default"
+      });
+      
+      const uploadedImages = await uploadNftImagesToIPFS();
+
       // Prepare seat categories data for database
-      const seatCategoriesData = seatCategories.map(category => ({
+      const seatCategoriesData = seatCategories.map((category, index) => ({
         name: category.name.trim(),
         price: parseFloat(category.price),
         capacity: category.capacity,
         color: category.color,
-        nft_image_url: nftImageOption === "category" ? category.nftImage : singleNftImage,
+        nft_image_url: nftImageOption === "category" 
+          ? uploadedImages[`category-${index}`] || category.nftImage 
+          : uploadedImages.singleNft || singleNftImage,
         total_rows: category.totalRows,
         seats_per_row: category.seatsPerRow,
         row_prefix: category.rowPrefix.trim()
@@ -733,7 +780,7 @@ const SellEvent = () => {
                       />
                     </Button>
                     {singleNftImage && (
-                      <span className="text-sm text-muted-foreground">NFT image uploaded</span>
+                      <span className="text-sm text-muted-foreground">NFT image selected (will upload when creating event)</span>
                     )}
                   </div>
                   {singleNftImage && (
@@ -776,7 +823,7 @@ const SellEvent = () => {
                           />
                         </Button>
                         {category.nftImage && (
-                          <span className="text-sm text-muted-foreground">Image uploaded</span>
+                          <span className="text-sm text-muted-foreground">NFT image selected (will upload when creating event)</span>
                         )}
                       </div>
                       {category.nftImage && (
