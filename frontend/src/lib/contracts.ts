@@ -10,12 +10,12 @@ import TicketNFTABI from '@/abi/TicketNFT.json';
 export const TICKET_FACTORY_ABI = TicketFactoryABI;
 export const TICKET_NFT_ABI = TicketNFTABI;
 
-// Contract addresses (update these with your deployed contract addresses)
+// Contract addresses (loaded from environment variables)
 export const CONTRACT_ADDRESSES = {
-  TICKET_FACTORY: import.meta.env.VITE_TICKET_FACTORY_ADDRESS || "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82", // Your TicketFactory contract address
-  TICKET_NFT_IMPLEMENTATION: import.meta.env.VITE_TICKET_NFT_IMPLEMENTATION_ADDRESS || "0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0", // TicketNFT implementation address
-  RESALE_MARKETPLACE: import.meta.env.VITE_RESALE_MARKETPLACE_ADDRESS || "0x9A676e781A523b5d0C0e43731313A708CB607508", // ResaleMarketplace contract address
-  REVENUE_SHARING: import.meta.env.VITE_REVENUE_SHARING_ADDRESS || "0x0B306BF915C4d645ff596e518fAf3F9669b97016", // RevenueSharing contract address
+  TICKET_FACTORY: import.meta.env.VITE_TICKET_FACTORY_ADDRESS,
+  TICKET_NFT_IMPLEMENTATION: import.meta.env.VITE_TICKET_NFT_IMPLEMENTATION_ADDRESS,
+  RESALE_MARKETPLACE: import.meta.env.VITE_RESALE_MARKETPLACE_ADDRESS,
+  REVENUE_SHARING: import.meta.env.VITE_REVENUE_SHARING_ADDRESS,
 };
 
 // Contract interaction interfaces

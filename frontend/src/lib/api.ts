@@ -224,34 +224,8 @@ export const eventsAPI = {
         ticketTypes
       });
 
-      // Check contract ownership before creating event
-      const { contractService, TICKET_FACTORY_ABI } = await import('./contracts');
-      
-      // Get contract address from environment
-      const contractAddress = import.meta.env.VITE_TICKET_FACTORY_ADDRESS;
-      console.log('=== CONTRACT OWNERSHIP CHECK ===');
-      console.log('Using contract address:', contractAddress);
-      console.log('Current wallet address:', organizerWalletAddress);
-      
-      const contract = await contractService.getContract(
-        contractAddress,
-        TICKET_FACTORY_ABI, 
-        false
-      );
-      
-      try {
-        const contractOwner = await contract.owner();
-        console.log('Contract owner address:', contractOwner);
-        console.log('Wallet address (lowercase):', organizerWalletAddress.toLowerCase());
-        console.log('Contract owner (lowercase):', contractOwner.toLowerCase());
-        console.log('Addresses match?:', contractOwner.toLowerCase() === organizerWalletAddress.toLowerCase());
-        console.log('=== END OWNERSHIP CHECK ===');
-      } catch (error) {
-        console.error('Error getting contract owner:', error);
-        console.log('Contract address used:', contractAddress);
-        console.log('Is contract deployed at this address?');
-        throw error;
-      }
+      // Import contract service
+      const { contractService } = await import('./contracts');
 
       const contractResult = await contractService.createContractEvent({
         name: eventData.title,
