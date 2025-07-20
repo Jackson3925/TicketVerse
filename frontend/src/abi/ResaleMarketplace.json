@@ -3,8 +3,16 @@
     "type": "function",
     "name": "buyTicket",
     "inputs": [
-      {"name": "ticketContract", "type": "address", "internalType": "address"},
-      {"name": "tokenId", "type": "uint256", "internalType": "uint256"}
+      {
+        "name": "ticketContract",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
     ],
     "outputs": [],
     "stateMutability": "payable"
@@ -13,8 +21,16 @@
     "type": "function",
     "name": "cancelListing",
     "inputs": [
-      {"name": "ticketContract", "type": "address", "internalType": "address"},
-      {"name": "tokenId", "type": "uint256", "internalType": "uint256"}
+      {
+        "name": "ticketContract",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
@@ -23,9 +39,21 @@
     "type": "function",
     "name": "listTicket",
     "inputs": [
-      {"name": "ticketContract", "type": "address", "internalType": "address"},
-      {"name": "tokenId", "type": "uint256", "internalType": "uint256"},
-      {"name": "price", "type": "uint256", "internalType": "uint256"}
+      {
+        "name": "ticketContract",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "price",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
@@ -34,12 +62,28 @@
     "type": "function",
     "name": "listings",
     "inputs": [
-      {"name": "", "type": "address", "internalType": "address"},
-      {"name": "", "type": "uint256", "internalType": "uint256"}
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
     ],
     "outputs": [
-      {"name": "seller", "type": "address", "internalType": "address"},
-      {"name": "price", "type": "uint256", "internalType": "uint256"}
+      {
+        "name": "seller",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "price",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
     ],
     "stateMutability": "view"
   },
@@ -47,13 +91,33 @@
     "type": "function",
     "name": "resaleRules",
     "inputs": [
-      {"name": "", "type": "address", "internalType": "address"}
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
     ],
     "outputs": [
-      {"name": "maxPriceMultiplier", "type": "uint256", "internalType": "uint256"},
-      {"name": "royaltyPercentage", "type": "uint256", "internalType": "uint256"},
-      {"name": "resaleEnabled", "type": "bool", "internalType": "bool"},
-      {"name": "resaleStartTime", "type": "uint256", "internalType": "uint256"}
+      {
+        "name": "maxPriceMultiplier",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "royaltyPercentage",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "resaleEnabled",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "resaleStartTime",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
     ],
     "stateMutability": "view"
   },
@@ -61,11 +125,31 @@
     "type": "function",
     "name": "setResaleRules",
     "inputs": [
-      {"name": "ticketContract", "type": "address", "internalType": "address"},
-      {"name": "maxPriceMultiplier", "type": "uint256", "internalType": "uint256"},
-      {"name": "royaltyPercentage", "type": "uint256", "internalType": "uint256"},
-      {"name": "resaleStartTime", "type": "uint256", "internalType": "uint256"},
-      {"name": "resaleEnabled", "type": "bool", "internalType": "bool"}
+      {
+        "name": "ticketContract",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "maxPriceMultiplier",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "royaltyPercentage",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "resaleStartTime",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "resaleEnabled",
+        "type": "bool",
+        "internalType": "bool"
+      }
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
@@ -74,8 +158,18 @@
     "type": "event",
     "name": "ListingCancelled",
     "inputs": [
-      {"name": "contractAddr", "type": "address", "indexed": true, "internalType": "address"},
-      {"name": "tokenId", "type": "uint256", "indexed": true, "internalType": "uint256"}
+      {
+        "name": "contractAddr",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      }
     ],
     "anonymous": false
   },
@@ -83,9 +177,24 @@
     "type": "event",
     "name": "TicketListed",
     "inputs": [
-      {"name": "contractAddr", "type": "address", "indexed": true, "internalType": "address"},
-      {"name": "tokenId", "type": "uint256", "indexed": true, "internalType": "uint256"},
-      {"name": "price", "type": "uint256", "indexed": false, "internalType": "uint256"}
+      {
+        "name": "contractAddr",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "price",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
     ],
     "anonymous": false
   },
@@ -93,10 +202,30 @@
     "type": "event",
     "name": "TicketSold",
     "inputs": [
-      {"name": "contractAddr", "type": "address", "indexed": true, "internalType": "address"},
-      {"name": "tokenId", "type": "uint256", "indexed": true, "internalType": "uint256"},
-      {"name": "buyer", "type": "address", "indexed": false, "internalType": "address"},
-      {"name": "price", "type": "uint256", "indexed": false, "internalType": "uint256"}
+      {
+        "name": "contractAddr",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "buyer",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "price",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
     ],
     "anonymous": false
   }
