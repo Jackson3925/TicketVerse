@@ -1016,18 +1016,83 @@ export const ordersAPI = {
     total_price: number
     status?: string
     transaction_hash?: string
+    buyer_id?: string // Optional: allow passing buyer_id directly
   }): Promise<Order> {
-    const user = await supabase.auth.getUser()
+    // If buyer_id is provided directly, use it (for wallet auth)
+    let buyerId: string | null = orderData.buyer_id || null;
     
-    if (!user.data.user) {
-      throw new Error('User not authenticated')
+    if (!buyerId) {
+      // Try Supabase auth first (for email-authenticated users)
+      try {
+        const user = await supabase.auth.getUser()
+        console.log('Supabase auth user:', user.data.user);
+        if (user.data.user) {
+          buyerId = user.data.user.id;
+          console.log('Using Supabase user ID:', buyerId);
+        }
+      } catch (error) {
+        console.log('No Supabase auth session found, checking custom auth:', error);
+      }
+      
+      // If no Supabase auth, try custom auth (for wallet-authenticated users)
+      if (!buyerId) {
+        try {
+          const { auth } = await import('./auth');
+          const authUser = await auth.getCurrentUser();
+          console.log('Custom auth user:', authUser);
+          if (authUser?.userProfile?.id) {
+            buyerId = authUser.userProfile.id;
+            console.log('Using custom auth user ID:', buyerId);
+          } else if (authUser?.id) {
+            buyerId = authUser.id;
+            console.log('Using custom auth fallback ID:', buyerId);
+          }
+        } catch (error) {
+          console.error('Failed to get auth user:', error);
+        }
+      }
+      
+      if (!buyerId) {
+        console.error('No user ID found from either auth system');
+        throw new Error('User not authenticated. Please sign in to continue.')
+      }
+    } else {
+      console.log('Using provided buyer ID:', buyerId);
     }
+    
+    // Ensure buyer record exists in database
+    const { data: existingBuyer, error: buyerCheckError } = await supabase
+      .from('buyers')
+      .select('id')
+      .eq('id', buyerId)
+      .single()
+    
+    if (buyerCheckError && buyerCheckError.code === 'PGRST116') {
+      // Buyer doesn't exist, create one
+      console.log('Buyer record not found, creating one...');
+      const { error: createBuyerError } = await supabase
+        .from('buyers')
+        .insert({
+          id: buyerId
+        })
+      
+      if (createBuyerError) {
+        console.error('Error creating buyer record:', createBuyerError);
+        throw new Error('Failed to create buyer profile');
+      }
+      console.log('Buyer record created successfully');
+    } else if (buyerCheckError) {
+      console.error('Error checking buyer:', buyerCheckError);
+      throw new Error('Failed to verify buyer profile');
+    }
+    
+    console.log('Final buyer ID for order creation:', buyerId);
 
     const { data, error } = await supabase
       .from('orders')
       .insert({
         ...orderData,
-        buyer_id: user.data.user.id
+        buyer_id: buyerId
       })
       .select()
       .single()

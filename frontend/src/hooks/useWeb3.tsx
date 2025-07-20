@@ -105,6 +105,32 @@ export const Web3Provider = ({ children }: Web3ProviderProps) => {
     if (accounts.length === 0) {
       disconnectWallet();
     } else {
+      // Check if user is already authenticated with a different wallet
+      if (isAuthenticated) {
+        const currentUser = await auth.getCurrentUser();
+        const userWalletAddress = currentUser?.buyerProfile?.wallet_address || currentUser?.sellerProfile?.wallet_address;
+        
+        // If user has a registered wallet address and it doesn't match the new one
+        if (userWalletAddress && userWalletAddress.toLowerCase() !== accounts[0].toLowerCase()) {
+          console.log('Wallet mismatch detected:', {
+            registered: userWalletAddress,
+            attempting: accounts[0]
+          });
+          
+          toast({
+            title: "Wallet Mismatch",
+            description: "You've switched to a different wallet. Please use your registered wallet address or sign out first.",
+            variant: "destructive",
+          });
+          
+          // Clear the wallet state immediately without updating database
+          setIsConnected(false);
+          setWallet(null);
+          setError("Wallet mismatch - please connect with your registered wallet");
+          return;
+        }
+      }
+      
       await updateWalletInfo(accounts[0]);
       
       // Update wallet information in database when account changes
@@ -208,6 +234,18 @@ export const Web3Provider = ({ children }: Web3ProviderProps) => {
         });
       }
     } catch (error: any) {
+      // Handle wallet mismatch error
+      if (error.message?.includes('Wallet address mismatch')) {
+        toast({
+          title: "Wallet Mismatch",
+          description: "This wallet doesn't match your registered wallet address. Please use the correct wallet or register a new account.",
+          variant: "destructive",
+        });
+        // Disconnect the mismatched wallet
+        await disconnectWalletOnly();
+        return;
+      }
+      
       // Silently fail if wallet is not registered - user can manually register
       if (!error.message?.includes('Wallet address not found')) {
         console.error('Auto-login failed:', error);
@@ -249,6 +287,17 @@ export const Web3Provider = ({ children }: Web3ProviderProps) => {
 
       if (accounts.length === 0) {
         throw new WalletError('No accounts found');
+      }
+
+      // Check if user is already authenticated with a different wallet before connecting
+      if (isAuthenticated) {
+        const currentUser = await auth.getCurrentUser();
+        const userWalletAddress = currentUser?.buyerProfile?.wallet_address || currentUser?.sellerProfile?.wallet_address;
+        
+        // If user has a registered wallet address and it doesn't match the connecting one
+        if (userWalletAddress && userWalletAddress.toLowerCase() !== accounts[0].toLowerCase()) {
+          throw new WalletError(`Wallet mismatch: You're trying to connect ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)} but your account is registered with ${userWalletAddress.slice(0, 6)}...${userWalletAddress.slice(-4)}. Please connect with the correct wallet or sign out first.`);
+        }
       }
 
       await updateWalletInfo(accounts[0]);
@@ -313,6 +362,17 @@ export const Web3Provider = ({ children }: Web3ProviderProps) => {
       // Always reset loading state regardless of success/failure/cancellation
       setIsConnecting(false);
     }
+  };
+
+  const disconnectWalletOnly = async () => {
+    setIsConnected(false);
+    setWallet(null);
+    setError(null);
+    
+    toast({
+      title: "Wallet Disconnected",
+      description: "Your wallet has been disconnected.",
+    });
   };
 
   const disconnectWallet = async () => {

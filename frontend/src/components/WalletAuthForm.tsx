@@ -73,7 +73,9 @@ export const WalletAuthForm = ({ onSuccess, className }: WalletAuthFormProps) =>
     } catch (error: any) {
       console.error('Wallet authentication error:', error)
       
-      if (error.message?.includes('Wallet address not found')) {
+      if (error.message?.includes('Wallet address mismatch')) {
+        setError('This wallet doesn\'t match your registered wallet address. Please connect with the correct wallet or register a new account.')
+      } else if (error.message?.includes('Wallet address not found')) {
         setError('Wallet not registered. Please sign up first or use a registered wallet.')
         setIsRegistering(true)
       } else if (error.message?.includes('Wallet address already registered')) {

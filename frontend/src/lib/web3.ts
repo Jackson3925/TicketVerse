@@ -56,7 +56,7 @@ export const SUPPORTED_CHAINS: Record<number, SupportedChain> = {
 };
 
 // Default chain (you can change this based on your deployment)
-export const DEFAULT_CHAIN_ID = 11155111; // Sepolia testnet
+export const DEFAULT_CHAIN_ID = parseInt(import.meta.env.VITE_CHAIN_ID) || 31337; // Use from environment or localhost
 
 export class WalletError extends Error {
   constructor(message: string, public code?: string) {

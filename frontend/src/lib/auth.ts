@@ -508,6 +508,18 @@ export const auth = {
 
       const userData = walletUserData[0]
       
+      // Validate that the wallet address matches exactly
+      if (userData.wallet_address && userData.wallet_address.toLowerCase() !== walletAddress.toLowerCase()) {
+        return { 
+          user: null, 
+          session: null, 
+          error: { 
+            message: 'Wallet address mismatch. Please connect with the wallet address registered to your account.',
+            name: 'WalletMismatchError'
+          } as AuthError 
+        }
+      }
+      
       // Get full user profile
       const { data: profileData, error: profileError } = await supabase.rpc('get_wallet_user_profile', {
         wallet_addr: walletAddress

@@ -61,6 +61,13 @@ export interface TicketPurchaseParams {
   priceInEth: string;
 }
 
+export interface PurchaseTicketsParams {
+  eventId: number;
+  ticketType: number;
+  quantity: number;
+  pricePerTicket: string;
+}
+
 export interface TicketInfo {
   ticketTypeId: number;
   price: string; // in ETH
@@ -83,22 +90,38 @@ export class ContractService {
   private signer: ethers.JsonRpcSigner | null = null;
 
   constructor() {
-    this.initializeProvider();
+    // Don't auto-initialize provider - wait for explicit initialization
   }
 
   private async initializeProvider() {
     if (typeof window !== 'undefined' && window.ethereum) {
-      this.provider = new ethers.BrowserProvider(window.ethereum);
+      try {
+        this.provider = new ethers.BrowserProvider(window.ethereum);
+        console.log('Web3 provider initialized successfully');
+      } catch (error) {
+        console.warn('Failed to initialize Web3 provider:', error);
+        this.provider = null;
+      }
+    } else {
+      console.warn('No window.ethereum found - Web3 provider not available');
+    }
+  }
+
+  // Helper method to ensure provider is initialized
+  private async ensureProvider(): Promise<void> {
+    if (!this.provider) {
+      await this.initializeProvider();
+      if (!this.provider) {
+        throw new Error('No Web3 provider found. Please connect your wallet.');
+      }
     }
   }
 
   private async getSigner(): Promise<ethers.JsonRpcSigner> {
-    if (!this.provider) {
-      throw new Error('No Web3 provider found');
-    }
+    await this.ensureProvider();
     
     if (!this.signer) {
-      this.signer = await this.provider.getSigner();
+      this.signer = await this.provider!.getSigner();
     }
     
     return this.signer;
@@ -110,17 +133,48 @@ export class ContractService {
     return await signer.getAddress();
   }
 
+  // Helper method to validate network
+  private async validateNetwork(): Promise<void> {
+    await this.ensureProvider();
+
+    try {
+      const network = await this.provider!.getNetwork();
+      const expectedChainId = parseInt(import.meta.env.VITE_CHAIN_ID) || 31337;
+      
+      if (Number(network.chainId) !== expectedChainId) {
+        throw new Error(`Wrong network. Expected chain ID ${expectedChainId}, but connected to ${network.chainId}. Please switch to the correct network in your wallet.`);
+      }
+
+      // Check if wallet is actually connected (has accounts)
+      const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+      if (!accounts || accounts.length === 0) {
+        throw new Error('Wallet not connected. Please connect your wallet first.');
+      }
+    } catch (error: any) {
+      if (error.message.includes('Wrong network') || error.message.includes('Wallet not connected')) {
+        throw error;
+      }
+      throw new Error('Failed to validate network connection. Please check your wallet connection.');
+    }
+  }
+
   // Helper method to get contract instance
   private async getContract(contractAddress: string, abi: any[], needsSigner: boolean = false): Promise<ethers.Contract> {
-    if (!this.provider) {
-      throw new Error('No Web3 provider found');
-    }
+    await this.ensureProvider();
 
-    if (needsSigner) {
-      const signer = await this.getSigner();
-      return new ethers.Contract(contractAddress, abi, signer);
-    } else {
-      return new ethers.Contract(contractAddress, abi, this.provider);
+    // Validate network before contract interaction
+    await this.validateNetwork();
+
+    try {
+      if (needsSigner) {
+        const signer = await this.getSigner();
+        return new ethers.Contract(contractAddress, abi, signer);
+      } else {
+        return new ethers.Contract(contractAddress, abi, this.provider!);
+      }
+    } catch (error: any) {
+      console.error(`Failed to create contract instance for ${contractAddress}:`, error);
+      throw new Error(`Failed to create contract instance: ${error.message}`);
     }
   }
 
@@ -128,6 +182,9 @@ export class ContractService {
   // Create a new event on the blockchain
   async createContractEvent(params: CreateEventParams): Promise<ContractEventResult> {
     const contract = await this.getContract(CONTRACT_ADDRESSES.TICKET_FACTORY, TICKET_FACTORY_ABI, true);
+    
+    // Get the creation fee from the contract
+    const creationFee = await contract.EVENT_CREATION_FEE();
     
     const ticketTypesForContract = params.ticketTypes.map(type => ({
       name: type.name,
@@ -142,7 +199,8 @@ export class ContractService {
       params.description,
       params.eventDate,
       params.organizer,
-      ticketTypesForContract
+      ticketTypesForContract,
+      { value: creationFee } // Include the creation fee
     );
     
     // Wait for transaction to be mined
@@ -291,11 +349,34 @@ export class ContractService {
     }
   }
 
+  // Purchase multiple tickets - supports quantity
+  async purchaseTickets(params: PurchaseTicketsParams): Promise<string> {
+    const results = [];
+    
+    for (let i = 0; i < params.quantity; i++) {
+      const purchaseParams: TicketPurchaseParams = {
+        eventId: params.eventId,
+        ticketTypeId: params.ticketType,
+        recipient: await this.getConnectedAccount(),
+        priceInEth: params.pricePerTicket
+      };
+      
+      const result = await this.purchaseTicket(purchaseParams);
+      results.push(result);
+    }
+    
+    // Return the last transaction hash
+    return results[results.length - 1].transactionHash;
+  }
+
   // Get event information
   async getEvent(eventId: number): Promise<EventData> {
     try {
+      // Ensure provider is initialized
+      await this.ensureProvider();
+
       // Check if contract is deployed at the address
-      const code = await this.provider.getCode(CONTRACT_ADDRESSES.TICKET_FACTORY);
+      const code = await this.provider!.getCode(CONTRACT_ADDRESSES.TICKET_FACTORY);
       if (code === '0x') {
         throw new Error(`No contract deployed at address ${CONTRACT_ADDRESSES.TICKET_FACTORY}`);
       }
@@ -333,7 +414,10 @@ export class ContractService {
           
           console.log('Trying interface-based call with callData:', callData);
           
-          const rawResult = await this.provider.call({
+          // Ensure provider is initialized before direct call
+          await this.ensureProvider();
+
+          const rawResult = await this.provider!.call({
             to: CONTRACT_ADDRESSES.TICKET_FACTORY,
             data: callData
           });
@@ -410,7 +494,15 @@ export class ContractService {
     } catch (error: any) {
       console.error(`Failed to get event ${eventId} from contract:`, error);
       console.error('Contract address:', CONTRACT_ADDRESSES.TICKET_FACTORY);
-      console.error('Network:', await this.provider.getNetwork());
+      try {
+        if (this.provider) {
+          console.error('Network:', await this.provider.getNetwork());
+        } else {
+          console.error('Provider not initialized');
+        }
+      } catch (networkError) {
+        console.error('Failed to get network info:', networkError);
+      }
       
       // Provide more specific error messages
       if (error.message?.includes('call revert exception')) {
@@ -517,40 +609,54 @@ export class ContractService {
     return types;
   }
 
+  // Get ticket type price directly from contract
+  async getTicketTypePrice(ticketContractAddress: string, ticketTypeId: number): Promise<string> {
+    const contract = await this.getContract(ticketContractAddress, TICKET_NFT_ABI, false);
+    const price = await contract.getTicketTypePrice(ticketTypeId);
+    return ethers.formatEther(price);
+  }
+
   // Get user's tickets for a specific event
   async getUserTickets(userAddress: string, ticketContractAddress: string): Promise<NFTTicketInfo[]> {
     const contract = await this.getContract(ticketContractAddress, TICKET_NFT_ABI, false);
-    const balance = await contract.balanceOf(userAddress);
     const tickets: NFTTicketInfo[] = [];
     
-    // This is simplified - you'd need to implement proper token enumeration
-    // or maintain an off-chain index of token IDs
-    for (let i = 1; i <= Number(balance); i++) {
-      try {
-        const owner = await contract.ownerOf(i);
-        
-        if (owner.toLowerCase() === userAddress.toLowerCase()) {
-          const tokenURI = await contract.tokenURI(i);
-          const ticketInfo = await contract.getTicketInfo(i);
+    try {
+      // Get the next token ID to know the range of tokens to check
+      const nextTokenId = await contract.nextTokenId();
+      const maxTokenId = Number(nextTokenId) - 1; // nextTokenId is the next available ID, so current max is -1
+      
+      // Check each token from 1 to maxTokenId
+      for (let tokenId = 1; tokenId <= maxTokenId; tokenId++) {
+        try {
+          const owner = await contract.ownerOf(tokenId);
+          
+          if (owner.toLowerCase() === userAddress.toLowerCase()) {
+            const tokenURI = await contract.tokenURI(tokenId);
+            const ticketInfo = await contract.getTicketInfo(tokenId);
 
-          tickets.push({
-            tokenId: i,
-            owner: userAddress,
-            tokenURI,
-            eventContract: ticketContractAddress,
-            ticketInfo: {
-              ticketTypeId: Number(ticketInfo.ticketTypeId),
-              price: ethers.formatEther(ticketInfo.price),
-              mintTimestamp: Number(ticketInfo.mintTimestamp),
-              isValidated: ticketInfo.isValidated,
-              isUsed: ticketInfo.isUsed
-            }
-          });
+            tickets.push({
+              tokenId: tokenId,
+              owner: userAddress,
+              tokenURI,
+              eventContract: ticketContractAddress,
+              ticketInfo: {
+                ticketTypeId: Number(ticketInfo.ticketTypeId),
+                price: ethers.formatEther(ticketInfo.price),
+                mintTimestamp: Number(ticketInfo.mintTimestamp),
+                isValidated: ticketInfo.isValidated,
+                isUsed: ticketInfo.isUsed
+              }
+            });
+          }
+        } catch (error) {
+          // Token doesn't exist or access error, skip this token
+          continue;
         }
-      } catch (error) {
-        // Token doesn't exist or other error
-        continue;
       }
+    } catch (error) {
+      console.error('Failed to get user tickets:', error);
+      throw new Error('Failed to retrieve user tickets from contract');
     }
 
     return tickets;
@@ -574,12 +680,10 @@ export class ContractService {
     return await contract.ownerOf(tokenId);
   }
 
-  // Validate ticket
-  async validateTicket(ticketContractAddress: string, tokenId: number): Promise<boolean> {
-    const contract = await this.getContract(ticketContractAddress, TICKET_NFT_ABI, true);
-    const tx = await contract.validateTicket(tokenId);
-    const receipt = await tx.wait();
-    return receipt.status === 1;
+  // Check if ticket is valid (view function)
+  async isTicketValid(ticketContractAddress: string, tokenId: number): Promise<boolean> {
+    const contract = await this.getContract(ticketContractAddress, TICKET_NFT_ABI, false);
+    return await contract.validateTicket(tokenId);
   }
 
   // Check if transfers are enabled for a ticket contract
@@ -600,6 +704,13 @@ export class ContractService {
     const contract = await this.getContract(ticketContractAddress, TICKET_NFT_ABI, false);
     const result = await contract.eventDate();
     return Number(result);
+  }
+
+  // Get event creation fee
+  async getEventCreationFee(): Promise<string> {
+    const contract = await this.getContract(CONTRACT_ADDRESSES.TICKET_FACTORY, TICKET_FACTORY_ABI, false);
+    const fee = await contract.EVENT_CREATION_FEE();
+    return ethers.formatEther(fee);
   }
 }
 

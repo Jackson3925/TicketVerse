@@ -164,10 +164,14 @@ const TicketPurchaseDialog = ({ isOpen, onClose, event }: TicketPurchaseDialogPr
         unit_price: parseFloat(contractPrice),
         total_price: totalPrice,
         status: 'confirmed',
-        transaction_hash: purchaseResults[0].transactionHash
+        transaction_hash: purchaseResults[0].transactionHash,
+        buyer_id: user?.id || user?.userProfile?.id // Pass user ID directly for wallet auth
       };
       
       console.log('Creating confirmed order:', orderData);
+      console.log('User from useAuth:', user);
+      console.log('User ID:', user?.id);
+      console.log('User profile ID:', user?.userProfile?.id);
       const order = await ordersAPI.createOrder(orderData);
       console.log('Order created with confirmed status:', order);
       
@@ -179,7 +183,7 @@ const TicketPurchaseDialog = ({ isOpen, onClose, event }: TicketPurchaseDialogPr
           order_id: order.id,
           event_id: event.id,
           seat_category_id: seatCategoryId,
-          ticket_number: `TKT-${purchaseResult.tokenId}`,
+          ticket_number: `TKT-${event.contract_event_id}-${purchaseResult.tokenId}`,
           seat_row: seat.row === 'AUTO' ? null : seat.row,
           seat_number: seat.row === 'AUTO' ? null : seat.number.toString()
         };
