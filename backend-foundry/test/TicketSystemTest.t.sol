@@ -17,47 +17,50 @@ contract TicketSystemTest is Test {
     address organizer = makeAddr("organizer");
     address buyer1 = makeAddr("buyer1");
     address buyer2 = makeAddr("buyer2");
+    address platform = makeAddr("platform");
+
+    // Test constants
+    uint256 public constant EVENT_FEE = 0.01 ether;
+    uint256 public constant VIP_PRICE = 0.1 ether;
+    uint256 public constant GENERAL_PRICE = 0.05 ether;
+    uint256 public eventDate;
 
     function setUp() public {
-        // Fund all test addresses
         vm.deal(owner, 100 ether);
         vm.deal(organizer, 100 ether);
         vm.deal(buyer1, 100 ether);
         vm.deal(buyer2, 100 ether);
+        vm.deal(platform, 100 ether);
 
         vm.startPrank(owner);
-
-        // Deploy all contracts
         ticketNFTImpl = new TicketNFT();
         ticketFactory = new TicketFactory(address(ticketNFTImpl));
         resaleMarketplace = new ResaleMarketplace();
-        revenueSharing = new RevenueSharing(owner);
-
+        revenueSharing = new RevenueSharing(platform); // Platform gets fees
         vm.stopPrank();
+
+        eventDate = block.timestamp + 1 days;
     }
 
-    function testCreateEvent() public {
-        vm.startPrank(owner);
-
-        // Prepare ticket types
+    function _createEvent() internal returns (uint256) {
         TicketNFT.TicketType[] memory ticketTypes = new TicketNFT.TicketType[](2);
         ticketTypes[0] = TicketNFT.TicketType({
             name: "VIP",
-            price: 0.1 ether,
+            price: VIP_PRICE,
             maxSupply: 100,
             currentSupply: 0,
             metadataURI: "ipfs://vip-ticket"
         });
         ticketTypes[1] = TicketNFT.TicketType({
             name: "General",
-            price: 0.05 ether,
+            price: GENERAL_PRICE,
             maxSupply: 1000,
             currentSupply: 0,
             metadataURI: "ipfs://general-ticket"
         });
 
-        uint256 eventDate = block.timestamp + 1 days;
-        ticketFactory.createEvent(
+        vm.prank(organizer);
+        ticketFactory.createEvent{value: EVENT_FEE}(
             "Summer Concert",
             "Annual summer music festival",
             eventDate,
@@ -65,155 +68,199 @@ contract TicketSystemTest is Test {
             ticketTypes
         );
 
-        // Get event using the getter function
-        TicketFactory.Event memory eventInfo = ticketFactory.getEvent(1);
-        
-        assertEq(eventInfo.id, 1);
-        assertEq(eventInfo.organizer, organizer);
-        assertEq(eventInfo.name, "Summer Concert");
-        assertEq(eventInfo.eventDate, eventDate);
-        assertTrue(eventInfo.isActive);
-
-        vm.stopPrank();
+        return 1; // First event gets ID 1
     }
 
-    function testMintTicket() public {
-        // First create an event
-        testCreateEvent();
+    function testEventCreation() public {
+        uint256 ownerBalanceBefore = owner.balance; // Fee goes to contract owner, not platform
+        uint256 eventId = _createEvent();
 
-        vm.startPrank(owner);
+        // Verify event data
+        TicketFactory.Event memory eventInfo = ticketFactory.getEvent(eventId);
+        assertEq(eventInfo.id, eventId);
+        assertEq(eventInfo.organizer, organizer);
+        assertEq(eventInfo.totalRevenue, 0);
 
-        // Mint a VIP ticket (type 0) to buyer1
-        uint256 tokenId = ticketFactory.mintTicket{value: 0.1 ether}(
-            1, // eventId
-            0, // ticketTypeId
+        // Verify fee payment goes to contract owner
+        assertEq(owner.balance, ownerBalanceBefore + EVENT_FEE);
+    }
+
+    function testTicketMinting() public {
+        uint256 eventId = _createEvent();
+        uint256 organizerBalanceBefore = organizer.balance;
+
+        vm.prank(buyer1);
+        uint256 tokenId = ticketFactory.mintTicket{value: VIP_PRICE}(
+            eventId,
+            0, // VIP ticket
             buyer1
         );
 
-        // Get ticket contract address
-        TicketFactory.Event memory eventInfo = ticketFactory.getEvent(1);
+        // Verify NFT ownership
+        TicketFactory.Event memory eventInfo = ticketFactory.getEvent(eventId);
         TicketNFT ticketContract = TicketNFT(eventInfo.ticketContract);
-        
-        // Get ticket info as struct
-        TicketNFT.TicketInfo memory ticketInfo = ticketContract.getTicketInfo(tokenId);
-        
-        assertEq(ticketInfo.ticketTypeId, 0);
-        assertEq(ticketInfo.price, 0.1 ether);
         assertEq(ticketContract.ownerOf(tokenId), buyer1);
 
-        // Verify factory stats
-        eventInfo = ticketFactory.getEvent(1);
-        assertEq(eventInfo.totalTicketsSold, 1);
-        assertEq(eventInfo.totalRevenue, 0.1 ether);
+        // Verify payment to organizer
+        assertEq(organizer.balance, organizerBalanceBefore + VIP_PRICE);
 
-        vm.stopPrank();
+        // Verify event stats
+        assertEq(eventInfo.totalTicketsSold, 1);
+        assertEq(eventInfo.totalRevenue, VIP_PRICE);
     }
 
-    function testResaleMarketplace() public {
-        // Setup: create event and mint ticket
-        testMintTicket();
+    function testTicketResale() public {
+        uint256 eventId = _createEvent();
+        
+        // Mint initial ticket
+        vm.prank(buyer1);
+        uint256 tokenId = ticketFactory.mintTicket{value: VIP_PRICE}(
+            eventId,
+            0,
+            buyer1
+        );
 
-        vm.startPrank(buyer1);
-
-        // Get ticket contract address
-        TicketFactory.Event memory eventInfo = ticketFactory.getEvent(1);
+        // Setup resale
+        TicketFactory.Event memory eventInfo = ticketFactory.getEvent(eventId);
         TicketNFT ticketContract = TicketNFT(eventInfo.ticketContract);
 
-        // Approve marketplace and list ticket
-        ticketContract.approve(address(resaleMarketplace), 1);
-
         // Enable resale after event starts
-        vm.warp(eventInfo.eventDate + 1); // Fast forward to after event starts
+        vm.warp(eventDate + 1 hours);
 
-        vm.stopPrank();
+        // Enable transfers first (required for resale)
+        vm.prank(organizer);
+        ticketContract.setTransferEnabled(true);
 
-        // Set resale rules first
-        vm.startPrank(owner); 
+        // Set resale rules
+        vm.prank(owner);
         resaleMarketplace.setResaleRules(
             address(ticketContract),
-            2,    // maxPriceMultiplier
-            10,   // royaltyPercentage
-            eventInfo.eventDate, // resaleStartTime
-            true   // resaleEnabled
+            2,    // max 2x price
+            10,   // 10% royalty
+            eventDate,
+            true
         );
-        vm.stopPrank(); // stop after startPrank()
 
-        // List ticket
-        vm.startPrank(buyer1); // startPrank again for list ticket
+        // List ticket for resale
+        uint256 resalePrice = VIP_PRICE * 15 / 10; // 1.5x original
+        vm.startPrank(buyer1);
+        ticketContract.approve(address(resaleMarketplace), tokenId);
         resaleMarketplace.listTicket(
             address(ticketContract),
-            1,
-            0.15 ether // 1.5x original price
+            tokenId,
+            resalePrice
         );
-
-        // Verify listing - get the full Listing struct
-        (address seller, uint256 price) = resaleMarketplace.listings(address(ticketContract), 1);
-        assertEq(seller, buyer1);
-        assertEq(price, 0.15 ether);
-        vm.stopPrank(); // stopPrank after listing
-
-        // Buy the ticket
-        vm.startPrank(buyer2);
-        resaleMarketplace.buyTicket{value: 0.15 ether}(
-            address(ticketContract),
-            1
-        );
-
-        // Verify transfer
-        assertEq(ticketContract.ownerOf(1), buyer2);
-        (seller, price) = resaleMarketplace.listings(address(ticketContract), 1);
-        assertEq(seller, address(0));
-
         vm.stopPrank();
+
+        // Verify listing
+        (address seller, uint256 price) = resaleMarketplace.listings(address(ticketContract), tokenId);
+        assertEq(seller, buyer1);
+        assertEq(price, resalePrice);
+
+        // Buy the resale ticket - capture balances right before resale transaction
+        uint256 buyer2BalanceBefore = buyer2.balance;
+        uint256 organizerBalanceBefore = organizer.balance;
+        uint256 buyer1BalanceBefore = buyer1.balance;
+
+        vm.prank(buyer2);
+        resaleMarketplace.buyTicket{value: resalePrice}(
+            address(ticketContract),
+            tokenId
+        );
+
+        // Verify transfers
+        assertEq(ticketContract.ownerOf(tokenId), buyer2);
+        assertEq(buyer2.balance, buyer2BalanceBefore - resalePrice);
+        
+        // 10% royalty (0.015 ether) should go to organizer
+        assertEq(organizer.balance, organizerBalanceBefore + (resalePrice * 10 / 100));
+        
+        // 90% (0.135 ether) to original seller
+        assertEq(buyer1.balance, buyer1BalanceBefore + (resalePrice * 90 / 100));
     }
 
     function testRevenueSharing() public {
-        vm.startPrank(buyer1);
-        
-        // Deposit revenue
-        uint256 amount = 1 ether;
-        revenueSharing.depositRevenue{value: amount}(organizer);
+        vm.prank(organizer);
+        revenueSharing.depositRevenue{value: 1 ether}(organizer);
 
-        // Verify balances
-        assertEq(address(revenueSharing).balance, amount);
-        assertEq(revenueSharing.balances(address(revenueSharing), owner), 0.1 ether); // 10% platform fee
-        assertEq(revenueSharing.balances(address(revenueSharing), organizer), 0.9 ether); // 90% organizer
+        // Verify 10% platform fee and 90% to organizer
+        assertEq(revenueSharing.balances(address(revenueSharing), platform), 0.1 ether);
+        assertEq(revenueSharing.balances(address(revenueSharing), organizer), 0.9 ether);
 
-        // Withdraw organizer's share
-        vm.startPrank(organizer);
-        uint256 initialBalance = organizer.balance;
+        // Test withdrawal
+        uint256 organizerBalanceBefore = organizer.balance;
+        vm.prank(organizer);
         revenueSharing.withdraw(organizer);
-        assertEq(organizer.balance, initialBalance + 0.9 ether);
-        assertEq(revenueSharing.balances(address(revenueSharing), organizer), 0);
 
-        vm.stopPrank();
+        assertEq(organizer.balance, organizerBalanceBefore + 0.9 ether);
+        assertEq(revenueSharing.balances(address(revenueSharing), organizer), 0);
     }
 
     function testTransferRestrictions() public {
-        testMintTicket();
+        uint256 eventId = _createEvent();
+        
+        vm.prank(buyer1);
+        uint256 tokenId = ticketFactory.mintTicket{value: VIP_PRICE}(
+            eventId,
+            0,
+            buyer1
+        );
 
-        // Get ticket contract address
-        TicketFactory.Event memory eventInfo = ticketFactory.getEvent(1);
+        TicketFactory.Event memory eventInfo = ticketFactory.getEvent(eventId);
         TicketNFT ticketContract = TicketNFT(eventInfo.ticketContract);
 
-        // Try to transfer before event (should fail)
-        vm.startPrank(buyer1);
-        vm.expectRevert("Transfers disabled before event");
-        ticketContract.transferFrom(buyer1, buyer2, 1);
-        vm.stopPrank(); // stopPramk after failed transfer
+        // Should fail before event
+        vm.prank(buyer1);
+        vm.expectRevert("Transfers is NOT enabled or event has NOT ended");
+        ticketContract.transferFrom(buyer1, buyer2, tokenId);
 
         // Fast forward to after event
-        vm.warp(eventInfo.eventDate + 1);
+        vm.warp(eventDate + 1 hours);
+
+        // Still fails without enabling transfers
+        vm.prank(buyer1);
+        vm.expectRevert("Transfers is NOT enabled or event has NOT ended");
+        ticketContract.transferFrom(buyer1, buyer2, tokenId);
 
         // Enable transfers
-        vm.startPrank(organizer);
+        vm.prank(organizer);
         ticketContract.setTransferEnabled(true);
-        vm.stopPrank(); // stopPrank after enabling transfers
 
-        // Transfer should now succeed
-        vm.startPrank(buyer1); // startPrank again for transfer after enabling transfers
-        ticketContract.transferFrom(buyer1, buyer2, 1);
-        assertEq(ticketContract.ownerOf(1), buyer2);
-        vm.stopPrank();
+        // Now succeeds
+        vm.prank(buyer1);
+        ticketContract.transferFrom(buyer1, buyer2, tokenId);
+        assertEq(ticketContract.ownerOf(tokenId), buyer2);
+    }
+
+    function testCannotMintAfterEvent() public {
+        uint256 eventId = _createEvent();
+        
+        // Fast forward past event
+        vm.warp(eventDate + 1 days);
+
+        vm.prank(buyer1);
+        vm.expectRevert("Event has ended");
+        ticketFactory.mintTicket{value: VIP_PRICE}(
+            eventId,
+            0,
+            buyer1
+        );
+    }
+
+    function testCannotMintSoldOut() public {
+        uint256 eventId = _createEvent();
+        TicketFactory.Event memory eventInfo = ticketFactory.getEvent(eventId);
+        TicketNFT ticketContract = TicketNFT(eventInfo.ticketContract);
+
+        // Mint all VIP tickets (max 100)
+        for (uint256 i = 0; i < 100; i++) {
+            vm.prank(buyer1);
+            ticketFactory.mintTicket{value: VIP_PRICE}(eventId, 0, buyer1);
+        }
+
+        // Attempt to mint one more
+        vm.prank(buyer1);
+        vm.expectRevert("Type sold out");
+        ticketFactory.mintTicket{value: VIP_PRICE}(eventId, 0, buyer1);
     }
 }

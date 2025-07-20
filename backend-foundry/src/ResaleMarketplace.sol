@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 interface ITicketNFT {
     function getTicketInfo(uint256 tokenId) external view returns (uint256, uint256, uint256, bool, bool);
     function safeTransferFrom(address from, address to, uint256 tokenId) external;
+    function owner() external view returns (address);
 }
 
 contract ResaleMarketplace {
@@ -39,6 +40,14 @@ contract ResaleMarketplace {
         require(msg.value >= listing.price, "Insufficient payment");
 
         uint256 royalty = (listing.price * resaleRules[ticketContract].royaltyPercentage) / 100;
+        
+        // Send royalty to organizer (NFT contract owner)
+        if (royalty > 0) {
+            address organizer = ITicketNFT(ticketContract).owner();
+            payable(organizer).transfer(royalty);
+        }
+        
+        // Send remaining amount to seller
         payable(listing.seller).transfer(listing.price - royalty);
 
         ITicketNFT(ticketContract).safeTransferFrom(listing.seller, msg.sender, tokenId);
