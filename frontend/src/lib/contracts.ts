@@ -18,6 +18,7 @@ export const CONTRACT_ADDRESSES = {
   REVENUE_SHARING: import.meta.env.VITE_REVENUE_SHARING_ADDRESS,
 };
 
+
 // Contract interaction interfaces
 export interface EventData {
   id: number;
@@ -193,7 +194,8 @@ export class ContractService {
     const contract = await this.getContract(CONTRACT_ADDRESSES.TICKET_FACTORY, TICKET_FACTORY_ABI, true);
     
     // Get the creation fee from the contract
-    const creationFee = await contract.EVENT_CREATION_FEE();
+    // const creationFee = await contract.EVENT_CREATION_FEE();
+    const creationFee = ethers.parseEther("0.01");
     
     const ticketTypesForContract = params.ticketTypes.map(type => ({
       name: type.name,
