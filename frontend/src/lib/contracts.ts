@@ -133,6 +133,15 @@ export class ContractService {
     return await signer.getAddress();
   }
 
+  // Validate wallet address matches expected user
+  private async validateWalletAddress(expectedAddress?: string): Promise<void> {
+    const connectedAddress = await this.getConnectedAccount();
+    
+    if (expectedAddress && expectedAddress.toLowerCase() !== connectedAddress.toLowerCase()) {
+      throw new Error(`Wallet mismatch: Expected ${expectedAddress.slice(0, 6)}...${expectedAddress.slice(-4)} but connected to ${connectedAddress.slice(0, 6)}...${connectedAddress.slice(-4)}`);
+    }
+  }
+
   // Helper method to validate network
   private async validateNetwork(): Promise<void> {
     await this.ensureProvider();
@@ -352,14 +361,18 @@ export class ContractService {
   // Purchase multiple tickets - supports quantity
   async purchaseTickets(params: PurchaseTicketsParams): Promise<string> {
     const results = [];
+    const connectedAccount = await this.getConnectedAccount();
     
     for (let i = 0; i < params.quantity; i++) {
       const purchaseParams: TicketPurchaseParams = {
         eventId: params.eventId,
         ticketTypeId: params.ticketType,
-        recipient: await this.getConnectedAccount(),
+        recipient: connectedAccount,
         priceInEth: params.pricePerTicket
       };
+      
+      // Validate wallet address before each purchase
+      await this.validateWalletAddress(connectedAccount);
       
       const result = await this.purchaseTicket(purchaseParams);
       results.push(result);

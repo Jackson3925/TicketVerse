@@ -71,6 +71,14 @@ const TicketPurchase = ({
     setPurchaseStep('processing');
 
     try {
+      // Validate wallet matches authenticated user
+      if (user) {
+        const registeredWallet = user.buyerProfile?.wallet_address || user.sellerProfile?.wallet_address;
+        if (registeredWallet && registeredWallet.toLowerCase() !== wallet.address.toLowerCase()) {
+          throw new Error(`Wallet mismatch: Connected wallet ${wallet.address.slice(0, 6)}...${wallet.address.slice(-4)} doesn't match your registered wallet ${registeredWallet.slice(0, 6)}...${registeredWallet.slice(-4)}. Please connect the correct wallet.`);
+        }
+      }
+
       // Check if user has sufficient balance
       const userBalance = parseFloat(wallet.balance);
       const totalCost = parseFloat(totalPrice);

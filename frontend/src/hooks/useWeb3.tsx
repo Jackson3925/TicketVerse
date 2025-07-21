@@ -45,10 +45,13 @@ export const Web3Provider = ({ children }: Web3ProviderProps) => {
   const { toast } = useToast();
   const { signInWithWallet, isAuthenticated } = useAuth();
 
-  // Set up event listeners only (don't auto-check connection)
+  // Set up event listeners and check initial connection
   useEffect(() => {
     setupEventListeners();
     setupAuthEventListeners();
+    
+    // Check connection immediately on mount
+    checkConnection();
     
     return () => {
       removeEventListeners();
@@ -105,28 +108,28 @@ export const Web3Provider = ({ children }: Web3ProviderProps) => {
     if (accounts.length === 0) {
       disconnectWallet();
     } else {
-      // Check if user is already authenticated with a different wallet
+      // Check if user is already authenticated with a registered wallet
       if (isAuthenticated) {
         const currentUser = await auth.getCurrentUser();
         const userWalletAddress = currentUser?.buyerProfile?.wallet_address || currentUser?.sellerProfile?.wallet_address;
         
-        // If user has a registered wallet address and it doesn't match the new one
+        // If user has a registered wallet address and it doesn't match the new one, reject the change
         if (userWalletAddress && userWalletAddress.toLowerCase() !== accounts[0].toLowerCase()) {
-          console.log('Wallet mismatch detected:', {
+          console.log('Wallet change blocked - user has registered wallet:', {
             registered: userWalletAddress,
             attempting: accounts[0]
           });
           
           toast({
-            title: "Wallet Mismatch",
-            description: "You've switched to a different wallet. Please use your registered wallet address or sign out first.",
+            title: "Wallet Change Not Allowed",
+            description: `Your account is locked to wallet ${userWalletAddress.slice(0, 6)}...${userWalletAddress.slice(-4)}. Please switch back to your registered wallet or sign out first.`,
             variant: "destructive",
           });
           
-          // Clear the wallet state immediately without updating database
+          // Immediately disconnect and clear state to prevent using wrong wallet
           setIsConnected(false);
           setWallet(null);
-          setError("Wallet mismatch - please connect with your registered wallet");
+          setError("Please connect with your registered wallet address");
           return;
         }
       }
@@ -142,6 +145,9 @@ export const Web3Provider = ({ children }: Web3ProviderProps) => {
         const formattedBalance = formatEther(BigInt(balance));
         await updateWalletInDatabase(accounts[0], formattedBalance);
         
+        // Clear any previous errors
+        setError(null);
+        
         // Attempt auto-login with new wallet
         await attemptWalletAuth(accounts[0]);
       } catch (error) {
@@ -150,7 +156,7 @@ export const Web3Provider = ({ children }: Web3ProviderProps) => {
     }
   };
 
-  const handleChainChanged = (chainId: string) => {
+  const handleChainChanged = () => {
     // Reload the page to reset state when chain changes
     window.location.reload();
   };
@@ -294,9 +300,9 @@ export const Web3Provider = ({ children }: Web3ProviderProps) => {
         const currentUser = await auth.getCurrentUser();
         const userWalletAddress = currentUser?.buyerProfile?.wallet_address || currentUser?.sellerProfile?.wallet_address;
         
-        // If user has a registered wallet address and it doesn't match the connecting one
+        // If user has a registered wallet address and it doesn't match the connecting one, block connection
         if (userWalletAddress && userWalletAddress.toLowerCase() !== accounts[0].toLowerCase()) {
-          throw new WalletError(`Wallet mismatch: You're trying to connect ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)} but your account is registered with ${userWalletAddress.slice(0, 6)}...${userWalletAddress.slice(-4)}. Please connect with the correct wallet or sign out first.`);
+          throw new WalletError(`Account locked to wallet ${userWalletAddress.slice(0, 6)}...${userWalletAddress.slice(-4)}. Please connect with your registered wallet or sign out first.`);
         }
       }
 
