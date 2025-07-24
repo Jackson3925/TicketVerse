@@ -321,7 +321,7 @@ const TicketPurchaseDialog = ({ isOpen, onClose, event }: TicketPurchaseDialogPr
               <div className="bg-muted p-4 rounded-lg">
                 <div className="text-center mb-4">
                   <Badge variant="outline" className="text-lg px-3 py-1">
-                    Total: {totalPrice.toFixed(3)} ETH
+                    Total: {totalPrice} ETH
                   </Badge>
                 </div>
                 

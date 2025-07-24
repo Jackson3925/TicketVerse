@@ -287,7 +287,7 @@ const SeatSelection = ({ maxSeats, onSeatsChange, selectedSeats, eventId }: Seat
               })}
             </div>
             <div className="text-sm font-medium mt-2 pt-2 border-t">
-              Total: {totalPrice.toFixed(3)} ETH
+              Total: {totalPrice} ETH
             </div>
           </div>
         )}
