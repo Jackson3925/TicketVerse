@@ -9,12 +9,10 @@ import {ResaleMarketplace} from "../src/ResaleMarketplace.sol";
 import {RevenueSharing} from "../src/RevenueSharing.sol";
 
 contract DeployContracts is Script {
-    function run() public returns (
-        address ticketNFTImpl,
-        address ticketFactory,
-        address resaleMarketplace,
-        address revenueSharing
-    ) {
+    function run()
+        public
+        returns (address ticketNFTImpl, address ticketFactory, address resaleMarketplace, address revenueSharing)
+    {
         vm.startBroadcast();
 
         // 1. Deploy TicketNFT implementation

@@ -110,31 +110,47 @@ contract TicketNFT is ERC721, Ownable {
 
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
         require(_mintedTokens[tokenId], "Token does not exist");
-        
+
         TicketInfo memory ticket = ticketDetails[tokenId];
         TicketType memory ticketType = ticketTypes[ticket.ticketTypeId];
-        
+
         // Return a properly formatted metadata URI
-        return string(abi.encodePacked(
-            "data:application/json;base64,",
-            Base64.encode(bytes(abi.encodePacked(
-                '{"name":"', ticketType.name, ' #', Strings.toString(tokenId), '",',
-                '"description":"Concert ticket for ', _eventName, '",',
-                '"image":"', ticketType.metadataURI, '",',
-                '"attributes":[',
-                    '{"trait_type":"Event","value":"', _eventName, '"},',
-                    '{"trait_type":"Ticket Type","value":"', ticketType.name, '"},',
-                    '{"trait_type":"Price","value":"', Strings.toString(ticketType.price), '"}',
-                ']}'
-            )))
-        ));
+        return string(
+            abi.encodePacked(
+                "data:application/json;base64,",
+                Base64.encode(
+                    bytes(
+                        abi.encodePacked(
+                            '{"name":"',
+                            ticketType.name,
+                            " #",
+                            Strings.toString(tokenId),
+                            '",',
+                            '"description":"Concert ticket for ',
+                            _eventName,
+                            '",',
+                            '"image":"',
+                            ticketType.metadataURI,
+                            '",',
+                            '"attributes":[',
+                            '{"trait_type":"Event","value":"',
+                            _eventName,
+                            '"},',
+                            '{"trait_type":"Ticket Type","value":"',
+                            ticketType.name,
+                            '"},',
+                            '{"trait_type":"Price","value":"',
+                            Strings.toString(ticketType.price),
+                            '"}',
+                            "]}"
+                        )
+                    )
+                )
+            )
+        );
     }
 
-    function _update(
-        address to,
-        uint256 tokenId,
-        address auth
-    ) internal virtual override returns (address) {
+    function _update(address to, uint256 tokenId, address auth) internal virtual override returns (address) {
         address from = _ownerOf(tokenId);
 
         // Only check transfer restrictions for actual transfers (not minting/burning)
