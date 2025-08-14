@@ -32,7 +32,7 @@ const EventCard = ({ event }: EventCardProps) => {
   const formatPrice = (event: EventWithRelations) => {
     if (event.seat_categories && event.seat_categories.length > 0) {
       const minPrice = Math.min(...event.seat_categories.map(cat => cat.price));
-      return `From $${minPrice}`;
+      return `From ${minPrice} ETH`;
     }
     return "Price TBA";
   };

@@ -13,9 +13,10 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { User, Wallet, Bell, Shield, Settings, Copy, CheckCircle, Loader2 } from "lucide-react";
+import { User, Wallet, Bell, Shield, Settings, Copy, CheckCircle, Loader2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { auth } from "@/lib/auth";
+import { ordersAPI, analyticsAPI, ticketsAPI } from "@/lib/api";
 import type { UpdateUserData, UpdateBuyerData, UpdateSellerData } from "@/lib/auth";
 
 const AccountProfile = () => {
@@ -52,7 +53,22 @@ const AccountProfile = () => {
 
   const [loading, setLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [realStats, setRealStats] = useState({
+    ticketsPurchased: 0,
+    eventsAttended: 0,
+    nftTicketsOwned: 0,
+    totalSpent: 0,
+    pendingOrders: 0,
+    confirmedOrders: 0,
+    eventsCreated: 0,
+    totalRevenue: 0
+  });
   const { toast } = useToast();
+
+  const userType = user?.userProfile?.user_type;
+  const isBuyer = userType === 'buyer' || userType === 'customer';
+  const isSeller = userType === 'seller';
 
   // Load user profile data
   useEffect(() => {
@@ -146,6 +162,66 @@ const AccountProfile = () => {
     loadProfileData();
   }, [user, authLoading, toast]);
 
+  // Load real statistics
+  useEffect(() => {
+    const loadStatistics = async () => {
+      if (!user || authLoading || profileLoading) return;
+      
+      try {
+        setStatsLoading(true);
+        
+        if (isBuyer) {
+          // Get buyer statistics
+          const [orderStats, userTickets] = await Promise.all([
+            ordersAPI.getOrderStats(user.id),
+            ticketsAPI.getUserTickets(user.id)
+          ]);
+          
+          // Count events attended (events with tickets that are past date)
+          const currentDate = new Date();
+          const eventsAttended = userTickets.filter(ticket => 
+            ticket.events?.date && new Date(ticket.events.date) < currentDate
+          ).reduce((count, ticket, index, arr) => {
+            // Count unique events only
+            const eventId = ticket.events?.id;
+            const isFirstTicketForEvent = arr.findIndex(t => t.events?.id === eventId) === index;
+            return isFirstTicketForEvent ? count + 1 : count;
+          }, 0);
+          
+          setRealStats(prev => ({
+            ...prev,
+            ticketsPurchased: orderStats.confirmedOrders,
+            eventsAttended,
+            nftTicketsOwned: userTickets.length,
+            totalSpent: orderStats.totalSpent,
+            pendingOrders: orderStats.pendingOrders,
+            confirmedOrders: orderStats.confirmedOrders
+          }));
+        } else if (isSeller) {
+          // Get seller statistics
+          const sellerAnalytics = await analyticsAPI.getSellerAnalytics(user.id);
+          
+          setRealStats(prev => ({
+            ...prev,
+            eventsCreated: sellerAnalytics.eventsCount,
+            totalRevenue: sellerAnalytics.totalRevenue
+          }));
+        }
+      } catch (error) {
+        console.error('Error loading statistics:', error);
+        toast({
+          title: "Warning",
+          description: "Failed to load latest statistics. Showing cached data.",
+          variant: "destructive"
+        });
+      } finally {
+        setStatsLoading(false);
+      }
+    };
+    
+    loadStatistics();
+  }, [user, authLoading, profileLoading, isBuyer, isSeller, toast]);
+
   const walletInfo = {
     address: isConnected ? (wallet?.address || "Not connected") : 
              (user?.buyerProfile?.wallet_address || user?.sellerProfile?.wallet_address || "Not connected"),
@@ -156,11 +232,12 @@ const AccountProfile = () => {
   };
 
   const stats = {
-    ticketsPurchased: user?.buyerProfile?.tickets_purchased || 0,
-    eventsAttended: user?.buyerProfile?.events_attended || 0,
-    nftTicketsOwned: user?.buyerProfile?.nft_tickets_owned || 0,
-    eventsCreated: user?.sellerProfile?.events_created || 0,
-    totalRevenue: user?.sellerProfile?.total_revenue || 0,
+    ticketsPurchased: realStats.ticketsPurchased,
+    eventsAttended: realStats.eventsAttended,
+    nftTicketsOwned: realStats.nftTicketsOwned,
+    eventsCreated: realStats.eventsCreated,
+    totalRevenue: realStats.totalRevenue,
+    totalSpent: realStats.totalSpent,
     memberSince: user?.userProfile?.created_at 
       ? new Date(user.userProfile.created_at).toLocaleDateString('en-US', { 
           year: 'numeric', 
@@ -169,10 +246,6 @@ const AccountProfile = () => {
       : "Unknown"
   };
 
-  const userType = user?.userProfile?.user_type;
-  const isBuyer = userType === 'buyer' || userType === 'customer';
-  const isSeller = userType === 'seller';
-  
   // Debug logging
   console.log('User type detection:', {
     userType,
@@ -255,6 +328,52 @@ const AccountProfile = () => {
 
   const handleNotificationChange = (key: string, value: boolean) => {
     setNotifications(prev => ({ ...prev, [key]: value }));
+  };
+
+  const refreshStats = async () => {
+    if (!user || authLoading) return;
+    
+    try {
+      setStatsLoading(true);
+      
+      if (isBuyer) {
+        const [orderStats, userTickets] = await Promise.all([
+          ordersAPI.getOrderStats(user.id),
+          ticketsAPI.getUserTickets(user.id)
+        ]);
+        
+        const currentDate = new Date();
+        const eventsAttended = userTickets.filter(ticket => 
+          ticket.events?.date && new Date(ticket.events.date) < currentDate
+        ).reduce((count, ticket, index, arr) => {
+          const eventId = ticket.events?.id;
+          const isFirstTicketForEvent = arr.findIndex(t => t.events?.id === eventId) === index;
+          return isFirstTicketForEvent ? count + 1 : count;
+        }, 0);
+        
+        setRealStats(prev => ({
+          ...prev,
+          ticketsPurchased: orderStats.confirmedOrders,
+          eventsAttended,
+          nftTicketsOwned: userTickets.length,
+          totalSpent: orderStats.totalSpent,
+          pendingOrders: orderStats.pendingOrders,
+          confirmedOrders: orderStats.confirmedOrders
+        }));
+      } else if (isSeller) {
+        const sellerAnalytics = await analyticsAPI.getSellerAnalytics(user.id);
+        
+        setRealStats(prev => ({
+          ...prev,
+          eventsCreated: sellerAnalytics.eventsCount,
+          totalRevenue: sellerAnalytics.totalRevenue
+        }));
+      }
+    } catch (error) {
+      console.error('Error refreshing statistics:', error);
+    } finally {
+      setStatsLoading(false);
+    }
   };
 
   if (authLoading || profileLoading) {
@@ -640,27 +759,58 @@ const AccountProfile = () => {
 
           {/* Statistics Tab */}
           <TabsContent value="stats">
+            <div className="mb-4 flex justify-between items-center">
+              <h3 className="text-lg font-semibold">Your Statistics</h3>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={refreshStats}
+                disabled={statsLoading}
+              >
+                {statsLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Refresh
+              </Button>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {isBuyer && (
                 <>
                   <Card>
                     <CardContent className="pt-6">
-                      <div className="text-2xl font-bold">{stats.ticketsPurchased}</div>
+                      <div className="text-2xl font-bold">
+                        {statsLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : stats.ticketsPurchased}
+                      </div>
                       <p className="text-sm text-muted-foreground">Tickets Purchased</p>
                     </CardContent>
                   </Card>
 
                   <Card>
                     <CardContent className="pt-6">
-                      <div className="text-2xl font-bold">{stats.eventsAttended}</div>
+                      <div className="text-2xl font-bold">
+                        {statsLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : stats.eventsAttended}
+                      </div>
                       <p className="text-sm text-muted-foreground">Events Attended</p>
                     </CardContent>
                   </Card>
 
                   <Card>
                     <CardContent className="pt-6">
-                      <div className="text-2xl font-bold">{stats.nftTicketsOwned}</div>
+                      <div className="text-2xl font-bold">
+                        {statsLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : stats.nftTicketsOwned}
+                      </div>
                       <p className="text-sm text-muted-foreground">NFT Tickets Owned</p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-2xl font-bold">
+                        {statsLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : `${stats.totalSpent.toFixed(5)} ETH`}
+                      </div>
+                      <p className="text-sm text-muted-foreground">Total Spent</p>
                     </CardContent>
                   </Card>
 
@@ -691,14 +841,18 @@ const AccountProfile = () => {
                 <>
                   <Card>
                     <CardContent className="pt-6">
-                      <div className="text-2xl font-bold">{stats.eventsCreated}</div>
+                      <div className="text-2xl font-bold">
+                        {statsLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : stats.eventsCreated}
+                      </div>
                       <p className="text-sm text-muted-foreground">Events Created</p>
                     </CardContent>
                   </Card>
 
                   <Card>
                     <CardContent className="pt-6">
-                      <div className="text-2xl font-bold">${stats.totalRevenue.toFixed(2)}</div>
+                      <div className="text-2xl font-bold">
+                        {statsLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : `${stats.totalRevenue.toFixed(5)} ETH`}
+                      </div>
                       <p className="text-sm text-muted-foreground">Total Revenue</p>
                     </CardContent>
                   </Card>

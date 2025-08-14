@@ -159,7 +159,7 @@ const ManageEvents = () => {
                     </div>
                     <div>
                       <p className="text-muted-foreground">Revenue</p>
-                      <p className="font-semibold">${event.revenue.toLocaleString()}</p>
+                      <p className="font-semibold">{event.revenue.toFixed(5)} ETH</p>
                     </div>
                   </div>
                   

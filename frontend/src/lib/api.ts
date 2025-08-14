@@ -264,12 +264,39 @@ export const eventsAPI = {
     }
   },
 
-  // Get seller's events
+  // Get seller's events with actual revenue
   async getSellerEvents(sellerId?: string): Promise<EventWithRelations[]> {
-    const userId = sellerId || (await supabase.auth.getUser()).data.user?.id
+    let userId = sellerId;
     
     if (!userId) {
-      throw new Error('User not authenticated')
+      // Try Supabase auth first
+      try {
+        const supabaseUser = await supabase.auth.getUser();
+        if (supabaseUser.data.user) {
+          userId = supabaseUser.data.user.id;
+        }
+      } catch (error) {
+        console.log('No Supabase auth found, trying custom auth');
+      }
+      
+      // Try custom auth if Supabase auth failed
+      if (!userId) {
+        try {
+          const { auth } = await import('./auth');
+          const authUser = await auth.getCurrentUser();
+          if (authUser?.userProfile?.id) {
+            userId = authUser.userProfile.id;
+          } else if (authUser?.id) {
+            userId = authUser.id;
+          }
+        } catch (error) {
+          console.error('Failed to get auth user for events:', error);
+        }
+      }
+      
+      if (!userId) {
+        throw new Error('User not authenticated')
+      }
     }
 
     const { data, error } = await supabase
@@ -288,7 +315,25 @@ export const eventsAPI = {
       throw error
     }
     
-    return data || []
+    // Calculate actual revenue for each event from orders
+    const eventsWithRevenue = await Promise.all((data || []).map(async (event) => {
+      const { data: ordersData } = await supabase
+        .from('orders')
+        .select('total_price, quantity')
+        .eq('event_id', event.id)
+        .eq('status', 'confirmed')
+      
+      const actualRevenue = ordersData?.reduce((sum, order) => sum + order.total_price, 0) || 0
+      const actualSoldTickets = ordersData?.reduce((sum, order) => sum + order.quantity, 0) || 0
+      
+      return {
+        ...event,
+        actual_revenue: actualRevenue,
+        actual_sold_tickets: actualSoldTickets
+      }
+    }))
+    
+    return eventsWithRevenue
   },
 
   // Update event
@@ -1308,11 +1353,40 @@ export const analyticsAPI = {
     topEvents: Event[]
     monthlyRevenue: Array<{ month: string; revenue: number }>
   }> {
-    const id = sellerId || (await supabase.auth.getUser()).data.user?.id
+    let id = sellerId;
     
     if (!id) {
-      throw new Error('User not authenticated')
+      // Try Supabase auth first
+      try {
+        const supabaseUser = await supabase.auth.getUser();
+        if (supabaseUser.data.user) {
+          id = supabaseUser.data.user.id;
+        }
+      } catch (error) {
+        console.log('No Supabase auth found, trying custom auth');
+      }
+      
+      // Try custom auth if Supabase auth failed
+      if (!id) {
+        try {
+          const { auth } = await import('./auth');
+          const authUser = await auth.getCurrentUser();
+          if (authUser?.userProfile?.id) {
+            id = authUser.userProfile.id;
+          } else if (authUser?.id) {
+            id = authUser.id;
+          }
+        } catch (error) {
+          console.error('Failed to get auth user for analytics:', error);
+        }
+      }
+      
+      if (!id) {
+        throw new Error('User not authenticated')
+      }
     }
+
+    console.log('Getting analytics for seller ID:', id);
 
     // Get events and orders in parallel
     const [eventsResult, ordersResult] = await Promise.all([
@@ -1330,11 +1404,22 @@ export const analyticsAPI = {
         .eq('status', 'confirmed')
     ])
 
-    if (eventsResult.error) throw eventsResult.error
-    if (ordersResult.error) throw ordersResult.error
+    console.log('Events result:', { data: eventsResult.data, error: eventsResult.error });
+    console.log('Orders result:', { data: ordersResult.data, error: ordersResult.error });
+
+    if (eventsResult.error) {
+      console.error('Events query error:', eventsResult.error);
+      throw eventsResult.error;
+    }
+    if (ordersResult.error) {
+      console.error('Orders query error:', ordersResult.error);
+      throw ordersResult.error;
+    }
 
     const events = eventsResult.data || []
     const orders = ordersResult.data || []
+    
+    console.log('Analytics data:', { events, orders, eventsCount: events.length, ordersCount: orders.length });
 
     const totalRevenue = orders.reduce((sum, order) => sum + order.total_price, 0)
     const totalTicketsSold = orders.reduce((sum, order) => sum + order.quantity, 0)
@@ -1379,27 +1464,99 @@ export const analyticsAPI = {
     status: string
     users?: User
   }>> {
-    const id = sellerId || (await supabase.auth.getUser()).data.user?.id
+    let id = sellerId;
     
     if (!id) {
-      throw new Error('User not authenticated')
+      // Try Supabase auth first
+      try {
+        const supabaseUser = await supabase.auth.getUser();
+        if (supabaseUser.data.user) {
+          id = supabaseUser.data.user.id;
+        }
+      } catch (error) {
+        console.log('No Supabase auth found, trying custom auth');
+      }
+      
+      // Try custom auth if Supabase auth failed
+      if (!id) {
+        try {
+          const { auth } = await import('./auth');
+          const authUser = await auth.getCurrentUser();
+          if (authUser?.userProfile?.id) {
+            id = authUser.userProfile.id;
+          } else if (authUser?.id) {
+            id = authUser.id;
+          }
+        } catch (error) {
+          console.error('Failed to get auth user for customers:', error);
+        }
+      }
+      
+      if (!id) {
+        throw new Error('User not authenticated')
+      }
     }
 
-    const { data, error } = await supabase
-      .from('customer_profiles')
+    // Get all orders for the seller's events and aggregate by buyer
+    const { data: ordersData, error: ordersError } = await supabase
+      .from('orders')
       .select(`
-        *,
-        users!customer_id(id, display_name, email, avatar_url)
+        buyer_id,
+        total_price,
+        purchase_date,
+        quantity,
+        status,
+        events!inner(seller_id),
+        buyers!buyer_id(
+          id,
+          users!buyers_id_fkey(id, display_name, email, avatar_url)
+        )
       `)
-      .eq('seller_id', id)
-      .order('total_spent', { ascending: false })
+      .eq('events.seller_id', id)
+      .eq('status', 'confirmed')
 
-    if (error) {
-      console.error('Error fetching seller customers:', error)
-      throw error
+    if (ordersError) {
+      console.error('Error fetching seller customer orders:', ordersError)
+      throw ordersError
     }
+
+    // Aggregate orders by customer
+    const customerMap = new Map()
     
-    return data || []
+    ordersData?.forEach(order => {
+      const customerId = order.buyer_id
+      if (!customerMap.has(customerId)) {
+        customerMap.set(customerId, {
+          id: `customer_${customerId}`,
+          customer_id: customerId,
+          total_purchases: 0,
+          total_spent: 0,
+          last_purchase_date: order.purchase_date,
+          status: 'regular',
+          users: order.buyers?.users
+        })
+      }
+      
+      const customer = customerMap.get(customerId)
+      customer.total_purchases += 1
+      customer.total_spent += order.total_price
+      
+      // Update last purchase date if this order is more recent
+      if (!customer.last_purchase_date || order.purchase_date > customer.last_purchase_date) {
+        customer.last_purchase_date = order.purchase_date
+      }
+      
+      // Determine status based on spending
+      if (customer.total_spent > 500) {
+        customer.status = 'vip'
+      } else if (customer.total_purchases === 1) {
+        customer.status = 'new'
+      } else {
+        customer.status = 'regular'
+      }
+    })
+    
+    return Array.from(customerMap.values()).sort((a, b) => b.total_spent - a.total_spent)
   }
 }
 

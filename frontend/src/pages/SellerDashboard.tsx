@@ -54,6 +54,7 @@ const SellerDashboard = () => {
           analyticsAPI.getSellerAnalytics()
         ]);
         
+        console.log('Dashboard data loaded:', { eventsData, analyticsData });
         setEvents(eventsData);
         setAnalytics(analyticsData);
         
@@ -116,13 +117,8 @@ const SellerDashboard = () => {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${totalRevenue.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground">
-                {analytics?.monthlyRevenue?.length > 1 ? 
-                  `+${((analytics.monthlyRevenue[analytics.monthlyRevenue.length - 1].revenue - analytics.monthlyRevenue[analytics.monthlyRevenue.length - 2].revenue) / analytics.monthlyRevenue[analytics.monthlyRevenue.length - 2].revenue * 100).toFixed(1)}% from last month` : 
-                  'No comparison data'
-                }
-              </p>
+              <div className="text-2xl font-bold">{totalRevenue.toFixed(5)} ETH</div>
+              <p className="text-xs text-muted-foreground">All time revenue from ticket sales</p>
             </CardContent>
           </Card>
           
@@ -211,10 +207,10 @@ const SellerDashboard = () => {
                     </div>
                     <div className="text-right mr-4">
                       <p className="font-semibold">
-                        ${((event.sold_tickets || 0) * (event.seat_categories?.[0]?.price || 0)).toLocaleString()}
+                        {(event.actual_revenue || 0).toFixed(5)} ETH
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {event.sold_tickets || 0}/{event.total_tickets || 0} sold
+                        {event.actual_sold_tickets || 0}/{event.total_tickets || 0} sold
                       </p>
                     </div>
                     <div className="flex gap-2">

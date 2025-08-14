@@ -45,7 +45,7 @@ const OrderHistory = () => {
     venue: order.venues?.name || 'Unknown Venue',
     location: 'TBD',
     purchaseDate: order.purchase_date || order.created_at,
-    price: `${order.total_price} ETH`,
+    price: `${order.total_price.toFixed(5)} ETH`,
     quantity: order.quantity,
     status: order.status,
     transactionHash: order.transaction_hash || '',
@@ -145,7 +145,7 @@ const OrderHistory = () => {
           </Card>
           <Card>
             <CardContent className="pt-6">
-              <div className="text-2xl font-bold">{totalSpent.toFixed(2)} ETH</div>
+              <div className="text-2xl font-bold">{totalSpent.toFixed(5)} ETH</div>
               <p className="text-sm text-muted-foreground">Total Spent</p>
             </CardContent>
           </Card>

@@ -40,7 +40,7 @@ const TicketCard = ({ ticket }: TicketCardProps) => {
   const venueName = ticket.events?.venues?.name || 'Unknown Venue';
   const venueLocation = ticket.events?.venues ? `${ticket.events.venues.city}${ticket.events.venues.state ? `, ${ticket.events.venues.state}` : ''}` : 'Unknown Location';
   const seatCategoryName = ticket.seat_categories?.name || 'General Admission';
-  const price = ticket.seat_categories?.price ? `$${ticket.seat_categories.price.toFixed(2)}` : 'N/A';
+  const price = ticket.seat_categories?.price ? `$${ticket.seat_categories.price.toFixed(5)}` : 'N/A';
   const posterImage = ticket.events?.poster_image_url || '/placeholder-event.jpg';
   const ticketNumber = ticket.ticket_number || ticket.id;
   const purchaseDate = ticket.orders?.purchase_date || ticket.created_at || '';

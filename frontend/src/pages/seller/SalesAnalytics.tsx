@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useRoleProtection } from "@/hooks/useRoleProtection";
 import { analyticsAPI, eventsAPI } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -69,46 +70,72 @@ const SalesAnalytics = () => {
     loadAnalyticsData();
   }, [user, toast]);
 
-  // Calculate event performance from real data
+  // Calculate event performance from real data using actual_revenue from getSellerEvents
   const eventPerformance = events.map(event => ({
     id: event.id,
     title: event.title,
-    revenue: (event.sold_tickets || 0) * (event.seat_categories?.[0]?.price || 0),
-    ticketsSold: event.sold_tickets || 0,
-    conversionRate: event.total_tickets > 0 ? ((event.sold_tickets || 0) / event.total_tickets * 100) : 0,
-    avgPrice: event.seat_categories?.[0]?.price || 0,
+    revenue: event.actual_revenue || 0,
+    ticketsSold: event.actual_sold_tickets || 0,
+    conversionRate: event.total_tickets > 0 ? ((event.actual_sold_tickets || 0) / event.total_tickets * 100) : 0,
+    avgPrice: (event.actual_sold_tickets || 0) > 0 ? (event.actual_revenue || 0) / (event.actual_sold_tickets || 0) : 0,
     status: event.status
   })).sort((a, b) => b.revenue - a.revenue);
 
-  // Calculate sales by category from real data
-  const salesByCategory = events.reduce((acc, event) => {
-    if (event.seat_categories) {
-      event.seat_categories.forEach(category => {
-        const existing = acc.find(item => item.category === category.name);
-        const sold = category.sold || 0;
-        const revenue = sold * category.price;
+  // Calculate sales by category from actual orders data
+  const [salesByCategory, setSalesByCategory] = useState([]);
+  
+  useEffect(() => {
+    const calculateCategorySales = async () => {
+      if (!user || events.length === 0) return;
+      
+      try {
+        // Get all orders for seller's events with seat category info
+        const { data: ordersWithCategories } = await supabase
+          .from('orders')
+          .select(`
+            total_price,
+            quantity,
+            seat_categories!seat_category_id(name, price),
+            events!event_id(seller_id)
+          `)
+          .eq('events.seller_id', user.id)
+          .eq('status', 'confirmed');
         
-        if (existing) {
-          existing.sold += sold;
-          existing.revenue += revenue;
-        } else {
-          acc.push({
-            category: category.name,
-            sold,
-            revenue,
-            percentage: 0 // Will calculate after
-          });
-        }
-      });
-    }
-    return acc;
-  }, []);
+        const categoryMap = new Map();
+        
+        ordersWithCategories?.forEach(order => {
+          const categoryName = order.seat_categories?.name || 'Unknown';
+          if (!categoryMap.has(categoryName)) {
+            categoryMap.set(categoryName, {
+              category: categoryName,
+              sold: 0,
+              revenue: 0,
+              percentage: 0
+            });
+          }
+          
+          const category = categoryMap.get(categoryName);
+          category.sold += order.quantity;
+          category.revenue += order.total_price;
+        });
+        
+        const categories = Array.from(categoryMap.values());
+        const totalRevenue = categories.reduce((sum, cat) => sum + cat.revenue, 0);
+        
+        // Calculate percentages
+        categories.forEach(cat => {
+          cat.percentage = totalRevenue > 0 ? (cat.revenue / totalRevenue * 100) : 0;
+        });
+        
+        setSalesByCategory(categories.sort((a, b) => b.revenue - a.revenue));
+      } catch (error) {
+        console.error('Error calculating category sales:', error);
+      }
+    };
+    
+    calculateCategorySales();
+  }, [user, events]);
 
-  // Calculate percentages
-  const totalCategoryRevenue = salesByCategory.reduce((sum, cat) => sum + cat.revenue, 0);
-  salesByCategory.forEach(cat => {
-    cat.percentage = totalCategoryRevenue > 0 ? (cat.revenue / totalCategoryRevenue * 100) : 0;
-  });
 
   // Calculate monthly growth
   const monthlyGrowth = analytics?.monthlyRevenue?.length > 1 ? 
@@ -173,7 +200,7 @@ const SalesAnalytics = () => {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${(analytics?.totalRevenue || 0).toLocaleString()}</div>
+              <div className="text-2xl font-bold">{(analytics?.totalRevenue || 0).toFixed(5)} ETH</div>
               <p className="text-xs text-green-600">
                 {monthlyGrowth > 0 ? `+${monthlyGrowth.toFixed(1)}% from last month` : 'No growth data'}
               </p>
@@ -197,7 +224,7 @@ const SalesAnalytics = () => {
               <BarChart3 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${(analytics?.averageTicketPrice || 0).toFixed(2)}</div>
+              <div className="text-2xl font-bold">{(analytics?.averageTicketPrice || 0).toFixed(5)} ETH</div>
               <p className="text-xs text-muted-foreground">Average per ticket</p>
             </CardContent>
           </Card>
@@ -246,7 +273,7 @@ const SalesAnalytics = () => {
                       <div className="grid grid-cols-2 gap-4 text-sm">
                         <div>
                           <p className="text-muted-foreground">Revenue</p>
-                          <p className="font-semibold">${event.revenue.toLocaleString()}</p>
+                          <p className="font-semibold">{event.revenue.toFixed(5)} ETH</p>
                         </div>
                         <div>
                           <p className="text-muted-foreground">Tickets Sold</p>
@@ -254,7 +281,7 @@ const SalesAnalytics = () => {
                         </div>
                         <div>
                           <p className="text-muted-foreground">Avg Price</p>
-                          <p className="font-semibold">${event.avgPrice}</p>
+                          <p className="font-semibold">{event.avgPrice.toFixed(5)} ETH</p>
                         </div>
                         <div>
                           <p className="text-muted-foreground">Conversion</p>
@@ -303,7 +330,7 @@ const SalesAnalytics = () => {
                         </div>
                         <div>
                           <span className="text-muted-foreground">Revenue: </span>
-                          <span className="font-medium">${category.revenue.toLocaleString()}</span>
+                          <span className="font-medium">{category.revenue.toFixed(5)} ETH</span>
                         </div>
                       </div>
                       <div className="w-full bg-secondary rounded-full h-2">
@@ -343,7 +370,7 @@ const SalesAnalytics = () => {
                       <span className="font-medium">{month.month}</span>
                     </div>
                     <div className="text-right">
-                      <span className="font-semibold">${month.revenue.toLocaleString()}</span>
+                      <span className="font-semibold">{month.revenue.toFixed(5)} ETH</span>
                     </div>
                   </div>
                 ))}

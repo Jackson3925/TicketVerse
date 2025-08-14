@@ -1,10 +1,15 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
+import { useRoleProtection } from "@/hooks/useRoleProtection";
+import { analyticsAPI } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
+import Navigation from "@/components/Navigation";
 import { 
   ArrowLeft,
   Search,
@@ -13,72 +18,86 @@ import {
   Calendar,
   MessageCircle,
   Download,
-  Filter
+  Filter,
+  Loader2
 } from "lucide-react";
 
 const CustomerManagement = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const { user } = useAuth();
+  
+  // Protect this route for sellers only
+  const { hasAccess } = useRoleProtection({ requiredRole: 'seller' });
+  
+  if (!hasAccess) {
+    return null; // useRoleProtection handles the redirect
+  }
+
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedFilter, setSelectedFilter] = useState("all");
+  const [customers, setCustomers] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // Mock customer data
-  const customers = [
-    {
-      id: 1,
-      name: "John Smith",
-      email: "john.smith@email.com",
-      totalPurchases: 3,
-      totalSpent: 750,
-      lastPurchase: "2024-06-15",
-      events: ["Rock Revival", "Electric Nights Festival"],
-      status: "vip"
-    },
-    {
-      id: 2,
-      name: "Sarah Johnson",
-      email: "sarah.j@email.com",
-      totalPurchases: 2,
-      totalSpent: 420,
-      lastPurchase: "2024-06-10",
-      events: ["Jazz Under the Stars", "Classical Evening"],
-      status: "regular"
-    },
-    {
-      id: 3,
-      name: "Mike Chen",
-      email: "mike.chen@email.com",
-      totalPurchases: 1,
-      totalSpent: 150,
-      lastPurchase: "2024-06-01",
-      events: ["Rock Revival"],
-      status: "new"
-    },
-    {
-      id: 4,
-      name: "Emily Davis",
-      email: "emily.davis@email.com",
-      totalPurchases: 5,
-      totalSpent: 1250,
-      lastPurchase: "2024-06-20",
-      events: ["Electric Nights Festival", "Jazz Under the Stars", "Rock Revival"],
-      status: "vip"
-    }
-  ];
+  // Load real customer data
+  useEffect(() => {
+    const loadCustomerData = async () => {
+      if (!user) return;
+      
+      try {
+        setLoading(true);
+        const customerData = await analyticsAPI.getSellerCustomers();
+        setCustomers(customerData);
+      } catch (error) {
+        console.error('Error loading customer data:', error);
+        toast({
+          title: "Error Loading Customers",
+          description: "Failed to load customer data. Please refresh the page.",
+          variant: "destructive"
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCustomerData();
+  }, [user, toast]);
 
   const filteredCustomers = customers.filter(customer => {
-    const matchesSearch = customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         customer.email.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesFilter = selectedFilter === "all" || customer.status === selectedFilter;
+    const customerName = customer.users?.display_name || 'Unknown';
+    const customerEmail = customer.users?.email || '';
+    const matchesSearch = customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         customerEmail.toLowerCase().includes(searchTerm.toLowerCase());
+    const customerStatus = (customer.total_spent || 0) > 500 ? 'vip' : customer.total_purchases === 1 ? 'new' : 'regular';
+    const matchesFilter = selectedFilter === "all" || customerStatus === selectedFilter;
     return matchesSearch && matchesFilter;
   });
 
   const totalCustomers = customers.length;
-  const totalRevenue = customers.reduce((sum, customer) => sum + customer.totalSpent, 0);
-  const averageSpent = totalRevenue / totalCustomers;
-  const vipCustomers = customers.filter(c => c.status === "vip").length;
+  const totalRevenue = customers.reduce((sum, customer) => sum + (customer.total_spent || 0), 0);
+  const averageSpent = totalCustomers > 0 ? totalRevenue / totalCustomers : 0;
+  const vipCustomers = customers.filter(c => (c.total_spent || 0) > 500).length;
+
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <div className="container mx-auto px-4 py-8">
+          <div className="flex items-center justify-center min-h-[400px]">
+            <div className="text-center">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+              <p>Loading customer data...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
+      <Navigation />
       {/* Header */}
       <div className="bg-primary text-primary-foreground py-6">
         <div className="container mx-auto px-4">
@@ -126,7 +145,7 @@ const CustomerManagement = () => {
               <Calendar className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${totalRevenue.toLocaleString()}</div>
+              <div className="text-2xl font-bold">{totalRevenue.toFixed(5)} ETH</div>
               <p className="text-xs text-muted-foreground">From ticket sales</p>
             </CardContent>
           </Card>
@@ -137,7 +156,7 @@ const CustomerManagement = () => {
               <User className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${averageSpent.toFixed(0)}</div>
+              <div className="text-2xl font-bold">{averageSpent.toFixed(5)} ETH</div>
               <p className="text-xs text-muted-foreground">Per customer</p>
             </CardContent>
           </Card>
@@ -194,25 +213,25 @@ const CustomerManagement = () => {
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
-                        <h4 className="font-medium">{customer.name}</h4>
+                        <h4 className="font-medium">{customer.users?.display_name || 'Unknown'}</h4>
                         <Badge 
                           variant={
-                            customer.status === 'vip' ? 'default' : 
-                            customer.status === 'new' ? 'secondary' : 'outline'
+                            (customer.total_spent || 0) > 0.1 ? 'default' : 
+                            customer.total_purchases === 1 ? 'secondary' : 'outline'
                           }
                         >
-                          {customer.status.toUpperCase()}
+                          {(customer.total_spent || 0) > 0.1 ? 'VIP' : customer.total_purchases === 1 ? 'NEW' : 'REGULAR'}
                         </Badge>
                       </div>
-                      <p className="text-sm text-muted-foreground mb-1">{customer.email}</p>
+                      <p className="text-sm text-muted-foreground mb-1">{customer.users?.email || 'No email'}</p>
                       <p className="text-sm text-muted-foreground">
-                        Last purchase: {new Date(customer.lastPurchase).toLocaleDateString()}
+                        Last purchase: {customer.last_purchase_date ? new Date(customer.last_purchase_date).toLocaleDateString() : 'Never'}
                       </p>
                     </div>
                     
                     <div className="text-right mr-4">
-                      <p className="font-semibold">${customer.totalSpent}</p>
-                      <p className="text-sm text-muted-foreground">{customer.totalPurchases} purchases</p>
+                      <p className="font-semibold">{(customer.total_spent || 0).toFixed(5)} ETH</p>
+                      <p className="text-sm text-muted-foreground">{customer.total_purchases || 0} purchases</p>
                     </div>
                     
                     <div className="flex gap-2">
@@ -226,14 +245,9 @@ const CustomerManagement = () => {
                   </div>
                   
                   <div className="mt-3 pt-3 border-t">
-                    <p className="text-sm text-muted-foreground mb-1">Events attended:</p>
-                    <div className="flex flex-wrap gap-1">
-                      {customer.events.map((event, index) => (
-                        <Badge key={index} variant="outline" className="text-xs">
-                          {event}
-                        </Badge>
-                      ))}
-                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Customer since: {customer.last_purchase_date ? new Date(customer.last_purchase_date).toLocaleDateString() : 'Unknown'}
+                    </p>
                   </div>
                 </div>
               ))}
