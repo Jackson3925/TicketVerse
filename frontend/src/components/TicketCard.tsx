@@ -1,9 +1,11 @@
 
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Calendar, MapPin, Download, Share2, QrCode } from "lucide-react";
+import { Calendar, MapPin, Download, Share2, QrCode, RefreshCw } from "lucide-react";
+import { QRVerificationService } from "@/lib/qrVerification";
 import type { Ticket } from '@/lib/supabase';
 
 type TicketWithRelations = Ticket & {
@@ -26,6 +28,10 @@ interface TicketCardProps {
 }
 
 const TicketCard = ({ ticket }: TicketCardProps) => {
+  const [qrCodeURL, setQrCodeURL] = useState<string>('/placeholder-qr.png');
+  const [isLoadingQR, setIsLoadingQR] = useState<boolean>(false);
+  const [refreshInterval, setRefreshInterval] = useState<NodeJS.Timeout | null>(null);
+  
   // Extract data with fallbacks
   const eventTitle = ticket.events?.title || 'Unknown Event';
   const artistName = ticket.events?.artists?.name || 'Unknown Artist';
@@ -38,7 +44,58 @@ const TicketCard = ({ ticket }: TicketCardProps) => {
   const posterImage = ticket.events?.poster_image_url || '/placeholder-event.jpg';
   const ticketNumber = ticket.ticket_number || ticket.id;
   const purchaseDate = ticket.orders?.purchase_date || ticket.created_at || '';
-  const qrCode = ticket.qr_code || '/placeholder-qr.png';
+  
+  // Generate static QR code for ticket verification
+  useEffect(() => {
+    const generateQRCode = async () => {
+      if (ticket.token_id && ticket.events?.contract_event_id) {
+        try {
+          setIsLoadingQR(true);
+          // Get the actual ticket contract address from the factory using contract_event_id
+          const { contractService } = await import('@/lib/contracts');
+          const eventData = await contractService.getEvent(ticket.events.contract_event_id);
+          const ticketContractAddress = eventData.ticketContract;
+          
+          if (ticketContractAddress) {
+            const qrData = QRVerificationService.generateQRCodeData(
+              parseInt(ticket.token_id),
+              ticket.event_id // Use database event UUID instead of contract address
+            );
+            const qrURL = QRVerificationService.generateQRCodeURL(qrData);
+            setQrCodeURL(qrURL);
+          } else {
+            setQrCodeURL('/placeholder-qr.png');
+          }
+        } catch (error) {
+          console.error('Failed to get ticket contract address:', error);
+          setQrCodeURL('/placeholder-qr.png');
+        } finally {
+          setIsLoadingQR(false);
+        }
+      } else {
+        setQrCodeURL('/placeholder-qr.png');
+        setIsLoadingQR(false);
+      }
+    };
+    
+    generateQRCode();
+
+    // Set up auto-refresh every 10 seconds for dynamic QR codes
+    const interval = setInterval(() => {
+      if (ticket.token_id && ticket.events?.contract_event_id && !isLoadingQR) {
+        generateQRCode();
+      }
+    }, 10 * 1000); // 10 seconds
+
+    setRefreshInterval(interval);
+
+    // Cleanup interval on unmount or dependency change
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [ticket.token_id, ticket.events?.contract_event_id]);
 
   const formatDate = (dateString: string) => {
     if (!dateString) return 'Date TBD';
@@ -79,6 +136,32 @@ const TicketCard = ({ ticket }: TicketCardProps) => {
         text: `Check out my ticket for ${eventTitle}!`,
         url: window.location.href,
       });
+    }
+  };
+
+  const handleRefreshQR = async () => {
+    if (ticket.token_id && ticket.events?.contract_event_id) {
+      try {
+        setIsLoadingQR(true);
+        // Force refresh by generating new QR code
+        const { contractService } = await import('@/lib/contracts');
+        const eventData = await contractService.getEvent(ticket.events.contract_event_id);
+        const ticketContractAddress = eventData.ticketContract;
+        
+        if (ticketContractAddress) {
+          // Generate new dynamic QR code with fresh nonce
+          const qrData = QRVerificationService.generateQRCodeData(
+            parseInt(ticket.token_id),
+            ticketContractAddress
+          );
+          const qrURL = QRVerificationService.generateQRCodeURL(qrData);
+          setQrCodeURL(qrURL);
+        }
+      } catch (error) {
+        console.error('Failed to refresh QR code:', error);
+      } finally {
+        setIsLoadingQR(false);
+      }
     }
   };
 
@@ -144,28 +227,51 @@ const TicketCard = ({ ticket }: TicketCardProps) => {
         <Separator />
 
         <div className="flex justify-center">
-          {qrCode ? (
-            <img 
-              src={qrCode} 
-              alt="Ticket QR Code"
-              className="w-24 h-24"
-              onError={(e) => {
-                e.currentTarget.src = '/placeholder-qr.png';
-              }}
-            />
-          ) : (
-            <div className="w-24 h-24 bg-muted rounded flex items-center justify-center">
-              <QrCode className="h-8 w-8 text-muted-foreground" />
-            </div>
-          )}
+          <div className="text-center">
+            {isLoadingQR ? (
+              <div className="w-32 h-32 sm:w-40 sm:h-40 mx-auto border rounded flex items-center justify-center bg-muted">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              </div>
+            ) : (
+              <div className="relative">
+                <img 
+                  src={qrCodeURL} 
+                  alt="Ticket Verification QR Code"
+                  className="w-32 h-32 sm:w-40 sm:h-40 mx-auto border rounded bg-white"
+                  onError={(e) => {
+                    console.error('QR code image failed to load:', qrCodeURL);
+                    e.currentTarget.src = '/placeholder-qr.png';
+                  }}
+                  onLoad={() => {
+                    console.log('QR code loaded successfully:', qrCodeURL);
+                  }}
+                />
+                {/* Debug info - remove in production */}
+                <div className="text-xs text-gray-500 mt-1 break-all max-w-32 sm:max-w-40">
+                  {qrCodeURL.includes('placeholder') ? 'No QR' : 'QR Active'}
+                </div>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground mt-2">
+              {isLoadingQR ? 'Generating QR Code...' : 'Scan at venue for entry'}
+            </p>
+          </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-4 gap-2">
           <Button variant="outline" size="sm" onClick={handleDownloadTicket}>
             <Download className="h-4 w-4" />
           </Button>
           <Button variant="outline" size="sm" onClick={handleShareTicket}>
             <Share2 className="h-4 w-4" />
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleRefreshQR}
+            disabled={isLoadingQR}
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoadingQR ? 'animate-spin' : ''}`} />
           </Button>
           <Button variant="outline" size="sm">
             <QrCode className="h-4 w-4" />

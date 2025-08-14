@@ -23,6 +23,7 @@ import CustomerAuth from "./pages/CustomerAuth";
 import SellerAuth from "./pages/SellerAuth";
 import Login from "./pages/Login";
 import VerifyEmail from "./pages/VerifyEmail";
+import TicketVerification from "./pages/TicketVerification";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -63,6 +64,8 @@ const App = () => (
             <Route path="/seller/analytics" element={<SalesAnalytics />} />
             <Route path="/seller/customers" element={<CustomerManagement />} />
             <Route path="/seller/resale-control" element={<ResaleControl />} />
+            {/* Verification Routes */}
+            <Route path="/verify/:eventId" element={<TicketVerification />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

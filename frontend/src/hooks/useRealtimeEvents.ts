@@ -119,10 +119,12 @@ export const useRealtimeTickets = (userId?: string) => {
         .from('tickets')
         .select(`
           *,
-          events(id, title, date, time, poster_image_url, category),
-          artists!events_artist_id_fkey(id, name, image_url),
-          venues!events_venue_id_fkey(id, name, city, state),
-          seat_categories(id, name, price, color),
+          events!tickets_event_id_fkey(
+            id, title, date, time, poster_image_url, category, contract_event_id,
+            artists!events_artist_id_fkey(id, name, image_url),
+            venues!events_venue_id_fkey(id, name, city, state)
+          ),
+          seat_categories!tickets_seat_category_id_fkey(id, name, price, color),
           orders!tickets_order_id_fkey(id, purchase_date, total_price, transaction_hash)
         `)
         .eq('owner_id', userId)

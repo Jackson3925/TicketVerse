@@ -753,7 +753,7 @@ export const ticketsAPI = {
       .select(`
         *,
         events!tickets_event_id_fkey(
-          id, title, date, time, poster_image_url, category,
+          id, title, date, time, poster_image_url, category, contract_event_id,
           artists!events_artist_id_fkey(id, name, image_url),
           venues!events_venue_id_fkey(id, name, city, state)
         ),

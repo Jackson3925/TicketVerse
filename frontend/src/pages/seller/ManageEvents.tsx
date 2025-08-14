@@ -13,6 +13,7 @@ import {
   Trash2, 
   Plus,
   ArrowLeft,
+  Shield,
   Filter
 } from "lucide-react";
 
@@ -173,6 +174,15 @@ const ManageEvents = () => {
                     <Button size="sm" variant="outline" className="flex-1">
                       <Eye className="h-4 w-4 mr-2" />
                       View
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="flex-1"
+                      onClick={() => navigate(`/verify/${event.contract_event_id || event.id}`)}
+                    >
+                      <Shield className="h-4 w-4 mr-2" />
+                      Verify
                     </Button>
                     <Button size="sm" variant="outline" className="flex-1">
                       <Edit className="h-4 w-4 mr-2" />
