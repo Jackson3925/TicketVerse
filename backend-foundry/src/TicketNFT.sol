@@ -38,8 +38,6 @@ contract TicketNFT is ERC721, Ownable {
     event TicketMinted(uint256 indexed tokenId, address recipient, uint256 ticketTypeId);
     event TransfersToggled(bool enabled);
 
-    // debug
-    // constructor() ERC721("TEMP_NAME", "TEMP_SYMBOL") Ownable(msg.sender) {}
     constructor() ERC721("", "") Ownable(msg.sender) {}
 
     function initialize(
@@ -70,42 +68,6 @@ contract TicketNFT is ERC721, Ownable {
         require(ticketTypeId < ticketTypes.length, "Invalid ticket type");
         return ticketTypes[ticketTypeId].price;
     }
-
-    // // Previous 
-    // function mintTicket(uint256 ticketTypeId, address recipient) external payable returns (uint256) {
-    //     require(msg.sender == factory, "Only factory can mint");
-    //     require(ticketTypeId < ticketTypes.length, "Invalid ticket type");
-
-    //     TicketType storage tt = ticketTypes[ticketTypeId];
-    //     require(tt.currentSupply < tt.maxSupply, "Type sold out");
-    //     require(msg.value >= tt.price, "Insufficient payment");
-
-    //     // Forward payment to contract owner (organizer) first
-    //     (bool sent, ) = owner().call{value: tt.price}("");
-    //     require(sent, "Payment transfer failed");
-
-    //     // Refund any excess payment
-    //     if (msg.value > tt.price) {
-    //         (sent, ) = msg.sender.call{value: msg.value - tt.price}("");
-    //         require(sent, "Refund failed");
-    //     }
-
-    //     uint256 tokenId = nextTokenId++;
-    //     _safeMint(recipient, tokenId);
-
-    //     ticketDetails[tokenId] = TicketInfo({
-    //         ticketTypeId: ticketTypeId,
-    //         price: tt.price,
-    //         mintTimestamp: block.timestamp,
-    //         isValidated: false,
-    //         isUsed: false
-    //     });
-
-    //     _mintedTokens[tokenId] = true;
-    //     tt.currentSupply++;
-    //     emit TicketMinted(tokenId, recipient, ticketTypeId);
-    //     return tokenId;
-    // }
 
     function mintTicket(uint256 ticketTypeId, address recipient) external returns (uint256) {
         require(msg.sender == factory, "Only factory can mint");
@@ -181,15 +143,5 @@ contract TicketNFT is ERC721, Ownable {
         }
 
         return super._update(to, tokenId, auth);
-    }
-
-    //debug
-    function name() public view override returns (string memory) {
-        return _eventName;
-    }
-
-    // debug
-    function symbol() public view override returns (string memory) {
-        return _eventSymbol;
     }
 }
