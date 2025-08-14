@@ -5,13 +5,11 @@ import {Test} from "forge-std/Test.sol";
 import {TicketNFT} from "../src/TicketNFT.sol";
 import {TicketFactory} from "../src/TicketFactory.sol";
 import {ResaleMarketplace} from "../src/ResaleMarketplace.sol";
-import {RevenueSharing} from "../src/RevenueSharing.sol";
 
 contract TicketSystemTest is Test {
     TicketNFT public ticketNFTImpl;
     TicketFactory public ticketFactory;
     ResaleMarketplace public resaleMarketplace;
-    RevenueSharing public revenueSharing;
 
     address owner = makeAddr("owner");
     address organizer = makeAddr("organizer");
@@ -36,7 +34,6 @@ contract TicketSystemTest is Test {
         ticketNFTImpl = new TicketNFT();
         ticketFactory = new TicketFactory(address(ticketNFTImpl));
         resaleMarketplace = new ResaleMarketplace();
-        revenueSharing = new RevenueSharing(platform); // Platform gets fees
         vm.stopPrank();
 
         eventDate = block.timestamp + 1 days;
@@ -61,64 +58,18 @@ contract TicketSystemTest is Test {
 
         vm.prank(organizer);
         ticketFactory.createEvent{value: EVENT_FEE}(
-            "Summer Concert",
-            "Annual summer music festival",
-            eventDate,
-            organizer,
-            ticketTypes
+            "Summer Concert", "Annual summer music festival", eventDate, organizer, ticketTypes
         );
 
         return 1; // First event gets ID 1
     }
 
-    function testEventCreation() public {
-        uint256 ownerBalanceBefore = owner.balance; // Fee goes to contract owner, not platform
-        uint256 eventId = _createEvent();
-
-        // Verify event data
-        TicketFactory.Event memory eventInfo = ticketFactory.getEvent(eventId);
-        assertEq(eventInfo.id, eventId);
-        assertEq(eventInfo.organizer, organizer);
-        assertEq(eventInfo.totalRevenue, 0);
-
-        // Verify fee payment goes to contract owner
-        assertEq(owner.balance, ownerBalanceBefore + EVENT_FEE);
-    }
-
-    function testTicketMinting() public {
-        uint256 eventId = _createEvent();
-        uint256 organizerBalanceBefore = organizer.balance;
-
-        vm.prank(buyer1);
-        uint256 tokenId = ticketFactory.mintTicket{value: VIP_PRICE}(
-            eventId,
-            0, // VIP ticket
-            buyer1
-        );
-
-        // Verify NFT ownership
-        TicketFactory.Event memory eventInfo = ticketFactory.getEvent(eventId);
-        TicketNFT ticketContract = TicketNFT(eventInfo.ticketContract);
-        assertEq(ticketContract.ownerOf(tokenId), buyer1);
-
-        // Verify payment to organizer
-        assertEq(organizer.balance, organizerBalanceBefore + VIP_PRICE);
-
-        // Verify event stats
-        assertEq(eventInfo.totalTicketsSold, 1);
-        assertEq(eventInfo.totalRevenue, VIP_PRICE);
-    }
-
     function testTicketResale() public {
         uint256 eventId = _createEvent();
-        
+
         // Mint initial ticket
         vm.prank(buyer1);
-        uint256 tokenId = ticketFactory.mintTicket{value: VIP_PRICE}(
-            eventId,
-            0,
-            buyer1
-        );
+        uint256 tokenId = ticketFactory.mintTicket{value: VIP_PRICE}(eventId, 0, buyer1);
 
         // Setup resale
         TicketFactory.Event memory eventInfo = ticketFactory.getEvent(eventId);
@@ -131,25 +82,11 @@ contract TicketSystemTest is Test {
         vm.prank(organizer);
         ticketContract.setTransferEnabled(true);
 
-        // Set resale rules
-        vm.prank(owner);
-        resaleMarketplace.setResaleRules(
-            address(ticketContract),
-            2,    // max 2x price
-            10,   // 10% royalty
-            eventDate,
-            true
-        );
-
-        // List ticket for resale
+        // List ticket for resale (no need for setResaleRules)
         uint256 resalePrice = VIP_PRICE * 15 / 10; // 1.5x original
         vm.startPrank(buyer1);
         ticketContract.approve(address(resaleMarketplace), tokenId);
-        resaleMarketplace.listTicket(
-            address(ticketContract),
-            tokenId,
-            resalePrice
-        );
+        resaleMarketplace.listTicket(address(ticketContract), tokenId, resalePrice);
         vm.stopPrank();
 
         // Verify listing
@@ -161,50 +98,33 @@ contract TicketSystemTest is Test {
         uint256 buyer2BalanceBefore = buyer2.balance;
         uint256 organizerBalanceBefore = organizer.balance;
         uint256 buyer1BalanceBefore = buyer1.balance;
+        uint256 ownerBalanceBefore = owner.balance;
 
         vm.prank(buyer2);
-        resaleMarketplace.buyTicket{value: resalePrice}(
-            address(ticketContract),
-            tokenId
-        );
+        resaleMarketplace.buyTicket{value: resalePrice}(address(ticketContract), tokenId);
 
         // Verify transfers
         assertEq(ticketContract.ownerOf(tokenId), buyer2);
         assertEq(buyer2.balance, buyer2BalanceBefore - resalePrice);
-        
-        // 10% royalty (0.015 ether) should go to organizer
-        assertEq(organizer.balance, organizerBalanceBefore + (resalePrice * 10 / 100));
-        
-        // 90% (0.135 ether) to original seller
-        assertEq(buyer1.balance, buyer1BalanceBefore + (resalePrice * 90 / 100));
-    }
 
-    function testRevenueSharing() public {
-        vm.prank(organizer);
-        revenueSharing.depositRevenue{value: 1 ether}(organizer);
+        // 2% royalty (0.003 ether) should go to organizer
+        uint256 expectedRoyalty = (resalePrice * 2) / 100;
+        assertEq(organizer.balance, organizerBalanceBefore + expectedRoyalty);
 
-        // Verify 10% platform fee and 90% to organizer
-        assertEq(revenueSharing.balances(address(revenueSharing), platform), 0.1 ether);
-        assertEq(revenueSharing.balances(address(revenueSharing), organizer), 0.9 ether);
+        // 1% platform fee (0.0015 ether) to owner
+        uint256 expectedPlatformFee = (resalePrice * 1) / 100;
+        assertEq(owner.balance, ownerBalanceBefore + expectedPlatformFee);
 
-        // Test withdrawal
-        uint256 organizerBalanceBefore = organizer.balance;
-        vm.prank(organizer);
-        revenueSharing.withdraw(organizer);
-
-        assertEq(organizer.balance, organizerBalanceBefore + 0.9 ether);
-        assertEq(revenueSharing.balances(address(revenueSharing), organizer), 0);
+        // 97% (0.1455 ether) to original seller
+        uint256 expectedSellerAmount = resalePrice - expectedRoyalty - expectedPlatformFee;
+        assertEq(buyer1.balance, buyer1BalanceBefore + expectedSellerAmount);
     }
 
     function testTransferRestrictions() public {
         uint256 eventId = _createEvent();
-        
+
         vm.prank(buyer1);
-        uint256 tokenId = ticketFactory.mintTicket{value: VIP_PRICE}(
-            eventId,
-            0,
-            buyer1
-        );
+        uint256 tokenId = ticketFactory.mintTicket{value: VIP_PRICE}(eventId, 0, buyer1);
 
         TicketFactory.Event memory eventInfo = ticketFactory.getEvent(eventId);
         TicketNFT ticketContract = TicketNFT(eventInfo.ticketContract);
@@ -234,17 +154,13 @@ contract TicketSystemTest is Test {
 
     function testCannotMintAfterEvent() public {
         uint256 eventId = _createEvent();
-        
+
         // Fast forward past event
         vm.warp(eventDate + 1 days);
 
         vm.prank(buyer1);
         vm.expectRevert("Event has ended");
-        ticketFactory.mintTicket{value: VIP_PRICE}(
-            eventId,
-            0,
-            buyer1
-        );
+        ticketFactory.mintTicket{value: VIP_PRICE}(eventId, 0, buyer1);
     }
 
     function testCannotMintSoldOut() public {

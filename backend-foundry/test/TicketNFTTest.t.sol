@@ -21,22 +21,10 @@ contract TicketNFTTest is Test {
 
     function test_Initialize() public {
         TicketNFT.TicketType[] memory ticketTypes = new TicketNFT.TicketType[](1);
-        ticketTypes[0] = TicketNFT.TicketType(
-            "VIP",
-            0.1 ether,
-            100,
-            0,
-            "ipfs://QmVIP"
-        );
+        ticketTypes[0] = TicketNFT.TicketType("VIP", 0.1 ether, 100, 0, "ipfs://QmVIP");
 
         vm.prank(factory);
-        ticketNFT.initialize(
-            "Concert",
-            "TIX",
-            block.timestamp + 1 days,
-            ticketTypes,
-            organizer
-        );
+        ticketNFT.initialize("Concert", "TIX", block.timestamp + 1 days, ticketTypes, organizer);
 
         assertEq(ticketNFT.name(), "Concert");
         assertEq(ticketNFT.symbol(), "TIX");
@@ -46,82 +34,40 @@ contract TicketNFTTest is Test {
 
     function test_RevertIfDoubleInitialize() public {
         TicketNFT.TicketType[] memory ticketTypes = new TicketNFT.TicketType[](1);
-        ticketTypes[0] = TicketNFT.TicketType(
-            "VIP",
-            0.1 ether,
-            100,
-            0,
-            "ipfs://QmVIP"
-        );
+        ticketTypes[0] = TicketNFT.TicketType("VIP", 0.1 ether, 100, 0, "ipfs://QmVIP");
 
         vm.prank(factory);
-        ticketNFT.initialize(
-            "Concert",
-            "TIX",
-            block.timestamp + 1 days,
-            ticketTypes,
-            organizer
-        );
+        ticketNFT.initialize("Concert", "TIX", block.timestamp + 1 days, ticketTypes, organizer);
 
         vm.prank(factory);
         vm.expectRevert("Already initialized");
-        ticketNFT.initialize(
-            "Concert",
-            "TIX",
-            block.timestamp + 1 days,
-            ticketTypes,
-            organizer
-        );
+        ticketNFT.initialize("Concert", "TIX", block.timestamp + 1 days, ticketTypes, organizer);
     }
 
     function test_MintTicket() public {
         // Setup initialized contract
         TicketNFT.TicketType[] memory ticketTypes = new TicketNFT.TicketType[](1);
-        ticketTypes[0] = TicketNFT.TicketType(
-            "VIP",
-            0.1 ether,
-            100,
-            0,
-            "ipfs://QmVIP"
-        );
+        ticketTypes[0] = TicketNFT.TicketType("VIP", 0.1 ether, 100, 0, "ipfs://QmVIP");
 
         vm.prank(factory);
-        ticketNFT.initialize(
-            "Concert",
-            "TIX",
-            block.timestamp + 1 days,
-            ticketTypes,
-            organizer
-        );
+        ticketNFT.initialize("Concert", "TIX", block.timestamp + 1 days, ticketTypes, organizer);
 
         // Test minting
         vm.prank(factory);
         uint256 tokenId = ticketNFT.mintTicket(0, buyer);
 
         assertEq(ticketNFT.ownerOf(tokenId), buyer);
-        (, , , uint256 currentSupply, ) = ticketNFT.ticketTypes(0);
+        (,,, uint256 currentSupply,) = ticketNFT.ticketTypes(0);
         assertEq(currentSupply, 1);
     }
 
     function test_RevertMintIfNotFactory() public {
         // Setup initialized contract
         TicketNFT.TicketType[] memory ticketTypes = new TicketNFT.TicketType[](1);
-        ticketTypes[0] = TicketNFT.TicketType(
-            "VIP",
-            0.1 ether,
-            100,
-            0,
-            "ipfs://QmVIP"
-        );
+        ticketTypes[0] = TicketNFT.TicketType("VIP", 0.1 ether, 100, 0, "ipfs://QmVIP");
 
         vm.prank(factory);
-        ticketNFT.initialize(
-            "Concert",
-            "TIX",
-            block.timestamp + 1 days,
-            ticketTypes,
-            organizer
-        );
+        ticketNFT.initialize("Concert", "TIX", block.timestamp + 1 days, ticketTypes, organizer);
 
         // Attempt mint from non-factory
         vm.prank(buyer);
@@ -132,22 +78,10 @@ contract TicketNFTTest is Test {
     function test_TransferRestrictions() public {
         // Setup initialized contract
         TicketNFT.TicketType[] memory ticketTypes = new TicketNFT.TicketType[](1);
-        ticketTypes[0] = TicketNFT.TicketType(
-            "VIP",
-            0.1 ether,
-            100,
-            0,
-            "ipfs://QmVIP"
-        );
+        ticketTypes[0] = TicketNFT.TicketType("VIP", 0.1 ether, 100, 0, "ipfs://QmVIP");
 
         vm.prank(factory);
-        ticketNFT.initialize(
-            "Concert",
-            "TIX",
-            block.timestamp + 1 days,
-            ticketTypes,
-            organizer
-        );
+        ticketNFT.initialize("Concert", "TIX", block.timestamp + 1 days, ticketTypes, organizer);
 
         // Mint a ticket
         vm.prank(factory);
@@ -179,22 +113,10 @@ contract TicketNFTTest is Test {
     function test_TokenURI() public {
         // Setup initialized contract
         TicketNFT.TicketType[] memory ticketTypes = new TicketNFT.TicketType[](1);
-        ticketTypes[0] = TicketNFT.TicketType(
-            "VIP",
-            0.1 ether,
-            100,
-            0,
-            "ipfs://QmVIP"
-        );
+        ticketTypes[0] = TicketNFT.TicketType("VIP", 0.1 ether, 100, 0, "ipfs://QmVIP");
 
         vm.prank(factory);
-        ticketNFT.initialize(
-            "Concert",
-            "TIX",
-            block.timestamp + 1 days,
-            ticketTypes,
-            organizer
-        );
+        ticketNFT.initialize("Concert", "TIX", block.timestamp + 1 days, ticketTypes, organizer);
 
         // Mint a ticket
         vm.prank(factory);
@@ -202,27 +124,26 @@ contract TicketNFTTest is Test {
 
         // Get token URI
         string memory uri = ticketNFT.tokenURI(tokenId);
-        
+
         // 1. Verify URI structure
         assertTrue(bytes(uri).length > 0, "URI empty");
         assertTrue(startsWith(uri, "data:application/json;base64,"), "Invalid prefix");
-        
+
         // 2. Verify JSON content
         string memory json = decodeBase64JSON(uri);
-        
+
         // Check required fields exist
         assertTrue(
-            contains(json, '"name":"VIP #1"') &&
-            contains(json, '"description":"Concert ticket for Concert"') &&
-            contains(json, '"image":"ipfs://QmVIP"'),
+            contains(json, '"name":"VIP #1"') && contains(json, '"description":"Concert ticket for Concert"')
+                && contains(json, '"image":"ipfs://QmVIP"'),
             "Missing required fields"
         );
-        
+
         // Check attributes
         assertTrue(
-            contains(json, '"trait_type":"Event","value":"Concert"') &&
-            contains(json, '"trait_type":"Ticket Type","value":"VIP"') &&
-            contains(json, '"trait_type":"Price","value":"100000000000000000"'),
+            contains(json, '"trait_type":"Event","value":"Concert"')
+                && contains(json, '"trait_type":"Ticket Type","value":"VIP"')
+                && contains(json, '"trait_type":"Price","value":"100000000000000000"'),
             "Incorrect attributes"
         );
     }
@@ -232,25 +153,22 @@ contract TicketNFTTest is Test {
         bytes memory uriBytes = bytes(uri);
         string memory prefix = "data:application/json;base64,";
         bytes memory prefixBytes = bytes(prefix);
-        
+
         require(uriBytes.length > prefixBytes.length, "URI too short");
-        
+
         // Extract prefix bytes manually
         bytes memory actualPrefix = new bytes(prefixBytes.length);
-        for (uint i = 0; i < prefixBytes.length; i++) {
+        for (uint256 i = 0; i < prefixBytes.length; i++) {
             actualPrefix[i] = uriBytes[i];
         }
-        
-        require(
-            keccak256(actualPrefix) == keccak256(prefixBytes),
-            "Invalid URI prefix"
-        );
+
+        require(keccak256(actualPrefix) == keccak256(prefixBytes), "Invalid URI prefix");
 
         bytes memory base64Data = new bytes(uriBytes.length - prefixBytes.length);
-        for (uint i = 0; i < base64Data.length; i++) {
+        for (uint256 i = 0; i < base64Data.length; i++) {
             base64Data[i] = uriBytes[i + prefixBytes.length];
         }
-        
+
         return string(Base64Decoder.decode(base64Data));
     }
 
@@ -258,7 +176,7 @@ contract TicketNFTTest is Test {
         bytes memory strBytes = bytes(str);
         bytes memory prefixBytes = bytes(prefix);
         if (prefixBytes.length > strBytes.length) return false;
-        for (uint i = 0; i < prefixBytes.length; i++) {
+        for (uint256 i = 0; i < prefixBytes.length; i++) {
             if (strBytes[i] != prefixBytes[i]) return false;
         }
         return true;
@@ -268,10 +186,10 @@ contract TicketNFTTest is Test {
         bytes memory strBytes = bytes(str);
         bytes memory substrBytes = bytes(substr);
         if (substrBytes.length > strBytes.length) return false;
-        for (uint i = 0; i <= strBytes.length - substrBytes.length; i++) {
+        for (uint256 i = 0; i <= strBytes.length - substrBytes.length; i++) {
             bool matching = true;
-            for (uint j = 0; j < substrBytes.length; j++) {
-                if (strBytes[i+j] != substrBytes[j]) {
+            for (uint256 j = 0; j < substrBytes.length; j++) {
+                if (strBytes[i + j] != substrBytes[j]) {
                     matching = false;
                     break;
                 }
@@ -284,16 +202,16 @@ contract TicketNFTTest is Test {
 
 // debug
 library Base64Decoder {
-    bytes constant private BASE64_TABLE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    
+    bytes private constant BASE64_TABLE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
     function decode(bytes memory _data) internal pure returns (bytes memory) {
         if (_data.length == 0) return new bytes(0);
-        
+
         // Load the table into memory
         bytes memory table = BASE64_TABLE;
 
         uint256 decodedLen = (_data.length / 4) * 3;
-        
+
         // Add extra 2 bytes for padding
         if (_data.length > 0 && _data[_data.length - 1] == "=") {
             decodedLen--;
@@ -301,19 +219,19 @@ library Base64Decoder {
                 decodedLen--;
             }
         }
-        
+
         bytes memory result = new bytes(decodedLen);
         uint256 resultPtr;
         uint256 dataPtr;
-        
-        for (uint256 i = 0; i < _data.length; ) {
+
+        for (uint256 i = 0; i < _data.length;) {
             uint256 b1 = _charToValue(_data[i++]);
             uint256 b2 = _charToValue(_data[i++]);
             uint256 b3 = _charToValue(_data[i++]);
             uint256 b4 = _charToValue(_data[i++]);
-            
+
             uint256 n = (b1 << 18) | (b2 << 12) | (b3 << 6) | b4;
-            
+
             result[resultPtr++] = bytes1(uint8(n >> 16));
             if (resultPtr < decodedLen) {
                 result[resultPtr++] = bytes1(uint8(n >> 8));
@@ -322,10 +240,10 @@ library Base64Decoder {
                 }
             }
         }
-        
+
         return result;
     }
-    
+
     function _charToValue(bytes1 char) private pure returns (uint256) {
         if (char >= "A" && char <= "Z") return uint8(char) - uint8(bytes1("A"));
         if (char >= "a" && char <= "z") return uint8(char) - uint8(bytes1("a")) + 26;

@@ -6,15 +6,12 @@ import {Script} from "forge-std/Script.sol";
 import {TicketNFT} from "../src/TicketNFT.sol";
 import {TicketFactory} from "../src/TicketFactory.sol";
 import {ResaleMarketplace} from "../src/ResaleMarketplace.sol";
-import {RevenueSharing} from "../src/RevenueSharing.sol";
 
 contract DeployContracts is Script {
-    function run() public returns (
-        address ticketNFTImpl,
-        address ticketFactory,
-        address resaleMarketplace,
-        address revenueSharing
-    ) {
+    function run()
+        public
+        returns (address ticketNFTImpl, address ticketFactory, address resaleMarketplace)
+    {
         vm.startBroadcast();
 
         // 1. Deploy TicketNFT implementation
@@ -29,16 +26,11 @@ contract DeployContracts is Script {
         ResaleMarketplace marketplace = new ResaleMarketplace();
         resaleMarketplace = address(marketplace);
 
-        // 4. Deploy RevenueSharing
-        RevenueSharing revenue = new RevenueSharing(msg.sender);
-        revenueSharing = address(revenue);
-
         vm.stopBroadcast();
 
         // Log addresses
         console.log("TicketNFT Implementation:", ticketNFTImpl);
         console.log("TicketFactory:", ticketFactory);
         console.log("ResaleMarketplace:", resaleMarketplace);
-        console.log("RevenueSharing:", revenueSharing);
     }
 }
