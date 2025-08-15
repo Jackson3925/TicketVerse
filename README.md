@@ -22,7 +22,11 @@ npm install
 
 2. **Configure Environment Variables**
 - Create a `.env.local` file in the `/Blockchain-concertPlatform/frontend` directory
-- replace `your_supabase_url`, `your_public_anon_key`, `https://your_rpc_url`, `your_pinata_jwt`, `your_gateway`
+- replace `your_supabase_url` with Supabase URL
+- replace `your_public_anon_key` with Supabase Anon Key
+- replace `https://your_rpc_url` with public/private RPC
+- replace `your_pinata_jwt` with Pinata JWT
+- replace `your_gateway` with Pinata IPFS Gateway
 ```bash
 # Supabase Configuration
 VITE_SUPABASE_URL=your_supabase_url
