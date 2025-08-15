@@ -193,4 +193,4 @@ npm run dev
 - Check wallet connection and network settings
 - Ensure sufficient ETH for transactions
 - Verify event details before purchase
-- Contact support through platform for assistance
+- Contact **Group 6** for support through Microsoft Teams
