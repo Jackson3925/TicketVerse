@@ -21,12 +21,13 @@ npm install
 ```
 
 2. **Configure Environment Variables**
-- Create a `.env.local` file in the `/Blockchain-concertPlatform/frontend` directory
+- Create a `.env.local` file in the `Blockchain-concertPlatform/frontend` directory
 - replace `your_supabase_url` with Supabase URL
 - replace `your_public_anon_key` with Supabase Anon Key
 - replace `https://your_rpc_url` with public/private RPC
 - replace `your_pinata_jwt` with Pinata JWT
 - replace `your_gateway` with Pinata IPFS Gateway
+- replace `your_service_role_key` with Supabase service role key
 ```bash
 # Supabase Configuration
 VITE_SUPABASE_URL=your_supabase_url
@@ -48,7 +49,7 @@ VITE_PINATA_GATEWAY=your_gateway
 
 # QR Code Security Configuration
 VITE_QR_SECRET_KEY=concert-platform-qr-secret-2025-blockchain-tickets
-VITE_SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBwbXNmanpnaGZqdGJiemVvZ3VwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MDc4Njc4MiwiZXhwIjoyMDY2MzYyNzgyfQ.0k-24neE6vcfXwEesHg_R5XIwQfZ3ZlvbdZ1B6ZCIi4
+VITE_SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 ```
 
 3. **Import Supabase Schema**
@@ -80,9 +81,14 @@ npm run dev
 - Visit [Sepolia Faucet](https://sepoliafaucet.com) to get free test ETH
 - Connect your MetaMask wallet to receive funds
 
+### Smart Contract Addresses
+- [TicketNFT Implementation Contract](https://sepolia.etherscan.io/address/0xb9a8b6C3313907e4C5A626cDBCB04c593747cfcB)
+- [TicketFactory Contract](https://sepolia.etherscan.io/address/0x2Cb5D511E3617d140F0d388409e43E74f74D555b)
+- [ResaleMarketplace Contract](https://sepolia.etherscan.io/address/0x83217bb9f432625Bd9C98107109231ea334cE8CA)
+
 ## ✨ Platform Features
 
-### 🎭 For Artists
+### 🎭 For Event Company
 **Create Events**
 - Register as an artist through the platform
 - Create concert events with details (name, date, venue, description)
@@ -90,7 +96,7 @@ npm run dev
 - Define seating categories and quantities
 
 **Manage Tickets**
-- Mint NFT tickets for your events
+- Upload NFT tickets images for your events
 - Set resale price limits to prevent scalping
 - Monitor ticket sales and revenue in real-time
 - View detailed analytics and customer data
@@ -99,7 +105,7 @@ npm run dev
 **Browse & Purchase**
 - Explore upcoming concerts and events
 - View detailed event information and artist profiles
-- Purchase tickets securely with cryptocurrency
+- Purchase and mint tickets securely with cryptocurrency
 - Receive NFT tickets in your wallet
 
 **Ticket Management**
@@ -113,7 +119,6 @@ npm run dev
 - List tickets for resale at market prices
 - Browse available resale tickets
 - Purchase tickets from other users
-- Automatic price limit enforcement
 
 **Security Features**
 - All transactions secured by smart contracts
@@ -127,7 +132,7 @@ npm run dev
 2. **Choose Role**: Select whether you're an Artist or Customer
 3. **Complete Profile**: Fill in your profile information
 
-### For Artists
+### For Event Company
 1. **Register**: Complete artist verification process
 2. **Create Event**: Use "Create Event" to add new concerts
 3. **Set Details**: Add event information, images, and pricing
