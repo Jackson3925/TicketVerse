@@ -184,7 +184,12 @@ const ManageEvents = () => {
                       <Shield className="h-4 w-4 mr-2" />
                       Verify
                     </Button>
-                    <Button size="sm" variant="outline" className="flex-1">
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="flex-1"
+                      onClick={() => navigate("/seller/resale-control")}
+                    >
                       <Edit className="h-4 w-4 mr-2" />
                       Edit
                     </Button>

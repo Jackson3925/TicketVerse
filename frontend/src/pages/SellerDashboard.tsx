@@ -13,12 +13,12 @@ import {
   Users, 
   DollarSign, 
   Eye,
-  Edit,
   Settings,
   BarChart3,
   UserCheck,
   Ticket,
-  Loader2
+  Loader2,
+  Store
 } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/hooks/use-toast";
@@ -159,10 +159,14 @@ const SellerDashboard = () => {
         </div>
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <Button onClick={() => navigate("/sell-event")} className="h-20 flex flex-col">
             <Calendar className="h-6 w-6 mb-2" />
             Create Event
+          </Button>
+          <Button onClick={() => navigate("/seller/resale-control")} variant="outline" className="h-20 flex flex-col">
+            <Store className="h-6 w-6 mb-2" />
+            Resale Control
           </Button>
           <Button onClick={() => navigate("/seller/analytics")} variant="outline" className="h-20 flex flex-col">
             <BarChart3 className="h-6 w-6 mb-2" />
@@ -216,9 +220,6 @@ const SellerDashboard = () => {
                     <div className="flex gap-2">
                       <Button size="sm" variant="ghost" onClick={() => navigate(`/event/${event.id}`)}>
                         <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => navigate(`/seller/edit-event/${event.id}`)}>
-                        <Edit className="h-4 w-4" />
                       </Button>
                     </div>
                   </div>

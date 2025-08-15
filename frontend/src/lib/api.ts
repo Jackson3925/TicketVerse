@@ -1333,6 +1333,23 @@ export const resaleAPI = {
     }
     
     return data
+  },
+
+  // Update resale listing status
+  async updateResaleListingStatus(listingId: string, status: 'active' | 'sold' | 'cancelled'): Promise<ResaleListing> {
+    const { data, error } = await supabase
+      .from('resale_listings')
+      .update({ status })
+      .eq('id', listingId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error updating resale listing status:', error)
+      throw error
+    }
+    
+    return data
   }
 }
 

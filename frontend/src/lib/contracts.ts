@@ -5,10 +5,12 @@ import { parseEther, formatEther } from '@/lib/web3';
 // Import ABI files
 import TicketFactoryABI from '@/abi/TicketFactory.json';
 import TicketNFTABI from '@/abi/TicketNFT.json';
+import ResaleMarketplaceABI from '@/abi/ResaleMarketplace.json';
 
 // Export the imported ABIs
 export const TICKET_FACTORY_ABI = TicketFactoryABI;
 export const TICKET_NFT_ABI = TicketNFTABI;
+export const RESALE_MARKETPLACE_ABI = ResaleMarketplaceABI;
 
 // Contract addresses (loaded from environment variables)
 export const CONTRACT_ADDRESSES = {
@@ -17,6 +19,14 @@ export const CONTRACT_ADDRESSES = {
   RESALE_MARKETPLACE: import.meta.env.VITE_RESALE_MARKETPLACE_ADDRESS,
   REVENUE_SHARING: import.meta.env.VITE_REVENUE_SHARING_ADDRESS,
 };
+
+// Debug: Log contract addresses on load
+console.log('Contract addresses loaded:', {
+  TICKET_FACTORY: CONTRACT_ADDRESSES.TICKET_FACTORY,
+  TICKET_NFT_IMPLEMENTATION: CONTRACT_ADDRESSES.TICKET_NFT_IMPLEMENTATION,
+  RESALE_MARKETPLACE: CONTRACT_ADDRESSES.RESALE_MARKETPLACE,
+  REVENUE_SHARING: CONTRACT_ADDRESSES.REVENUE_SHARING,
+});
 
 
 // Contract interaction interfaces
@@ -83,6 +93,16 @@ export interface NFTTicketInfo {
   tokenURI: string;
   eventContract: string;
   ticketInfo: TicketInfo;
+  dbTicketId?: string; // Database ticket ID for creating resale listings
+}
+
+export interface ResaleListingInfo {
+  ticketContract: string;
+  tokenId: number;
+  seller: string;
+  price: string; // in ETH
+  eventInfo?: EventData;
+  ticketInfo?: NFTTicketInfo;
 }
 
 // Contract interaction class
@@ -727,6 +747,258 @@ export class ContractService {
     const fee = await contract.EVENT_CREATION_FEE();
     return ethers.formatEther(fee);
   }
+
+  // RESALE MARKETPLACE METHODS
+
+  // List a ticket for resale
+  async listTicketForResale(
+    ticketContractAddress: string,
+    tokenId: number,
+    priceInEth: string
+  ): Promise<string> {
+    try {
+      // First, approve the ResaleMarketplace to transfer the NFT
+      const ticketContract = await this.getContract(ticketContractAddress, TICKET_NFT_ABI, true);
+      console.log('Approving ResaleMarketplace to transfer NFT...', {
+        ticketContract: ticketContractAddress,
+        tokenId,
+        resaleMarketplace: CONTRACT_ADDRESSES.RESALE_MARKETPLACE
+      });
+      
+      const approveTx = await ticketContract.approve(CONTRACT_ADDRESSES.RESALE_MARKETPLACE, tokenId);
+      console.log('Approval transaction sent, waiting for confirmation...', approveTx.hash);
+      await approveTx.wait(); // Wait for approval to complete
+      console.log('Approval completed successfully:', approveTx.hash);
+      
+      // Verify approval worked
+      const approvedAddress = await ticketContract.getApproved(tokenId);
+      console.log('Verification - NFT approved to:', approvedAddress);
+      
+      // Then list the ticket
+      const contract = await this.getContract(CONTRACT_ADDRESSES.RESALE_MARKETPLACE, RESALE_MARKETPLACE_ABI, true);
+      
+      // Convert price to wei
+      const priceInWei = ethers.parseEther(contractUtils.formatPriceForContract(priceInEth));
+      console.log('Listing ticket with price:', priceInEth, 'wei:', priceInWei.toString());
+      
+      const tx = await contract.listTicket(ticketContractAddress, tokenId, priceInWei);
+      console.log('Listing transaction sent:', tx.hash);
+      return tx.hash;
+    } catch (error) {
+      console.error('Error in listTicketForResale:', error);
+      throw error;
+    }
+  }
+
+  // Buy a ticket from resale marketplace
+  async buyResaleTicket(
+    ticketContractAddress: string,
+    tokenId: number,
+    priceInEth: string
+  ): Promise<string> {
+    const contract = await this.getContract(CONTRACT_ADDRESSES.RESALE_MARKETPLACE, RESALE_MARKETPLACE_ABI, true);
+    
+    // First check if the listing exists
+    const listing = await this.getResaleListing(ticketContractAddress, tokenId);
+    console.log('Current listing for buy:', listing);
+    
+    if (!listing) {
+      throw new Error('Ticket is not listed for sale');
+    }
+    
+    // Check if ResaleMarketplace is approved to transfer this NFT
+    const ticketContract = await this.getContract(ticketContractAddress, TICKET_NFT_ABI, false);
+    const approvedAddress = await ticketContract.getApproved(tokenId);
+    const isApprovedForAll = await ticketContract.isApprovedForAll(listing.seller, CONTRACT_ADDRESSES.RESALE_MARKETPLACE);
+    
+    console.log('Transfer approval check:', {
+      tokenId,
+      seller: listing.seller,
+      approvedAddress,
+      resaleMarketplace: CONTRACT_ADDRESSES.RESALE_MARKETPLACE,
+      isSpecificApproval: approvedAddress.toLowerCase() === CONTRACT_ADDRESSES.RESALE_MARKETPLACE.toLowerCase(),
+      isApprovedForAll,
+      canTransfer: approvedAddress.toLowerCase() === CONTRACT_ADDRESSES.RESALE_MARKETPLACE.toLowerCase() || isApprovedForAll
+    });
+    
+    if (approvedAddress.toLowerCase() !== CONTRACT_ADDRESSES.RESALE_MARKETPLACE.toLowerCase() && !isApprovedForAll) {
+      throw new Error('ResaleMarketplace is not approved to transfer this NFT. The seller needs to approve the marketplace first.');
+    }
+    
+    // Convert price to wei
+    const priceInWei = ethers.parseEther(contractUtils.formatPriceForContract(priceInEth));
+    console.log('Buying ticket with price:', priceInEth, 'wei:', priceInWei.toString());
+    
+    const tx = await contract.buyTicket(ticketContractAddress, tokenId, {
+      value: priceInWei
+    });
+    return tx.hash;
+  }
+
+  // Cancel a resale listing
+  async cancelResaleListing(
+    ticketContractAddress: string,
+    tokenId: number
+  ): Promise<string> {
+    const contract = await this.getContract(CONTRACT_ADDRESSES.RESALE_MARKETPLACE, RESALE_MARKETPLACE_ABI, true);
+    
+    const tx = await contract.cancelListing(ticketContractAddress, tokenId);
+    return tx.hash;
+  }
+
+  // Get listing information for a ticket
+  async getResaleListing(
+    ticketContractAddress: string,
+    tokenId: number
+  ): Promise<{ seller: string; price: string } | null> {
+    console.log('getResaleListing called with:', { ticketContractAddress, tokenId });
+    
+    if (!CONTRACT_ADDRESSES.RESALE_MARKETPLACE) {
+      console.warn('Resale marketplace address not configured');
+      return null;
+    }
+    
+    if (!ticketContractAddress) {
+      console.error('Ticket contract address is null/undefined');
+      return null;
+    }
+    
+    const contract = await this.getContract(CONTRACT_ADDRESSES.RESALE_MARKETPLACE, RESALE_MARKETPLACE_ABI, false);
+    
+    try {
+      const listing = await contract.listings(ticketContractAddress, tokenId);
+      
+      // If price is 0, ticket is not listed
+      if (listing.price === 0n) {
+        return null;
+      }
+      
+      return {
+        seller: listing.seller,
+        price: ethers.formatEther(listing.price)
+      };
+    } catch (error) {
+      console.error('Error getting resale listing:', error);
+      return null;
+    }
+  }
+
+  // Get all listed tickets for resale (requires event listening for efficiency)
+  async getActiveResaleListings(): Promise<Array<{
+    ticketContract: string;
+    tokenId: number;
+    seller: string;
+    price: string;
+  }>> {
+    const contract = await this.getContract(CONTRACT_ADDRESSES.RESALE_MARKETPLACE, RESALE_MARKETPLACE_ABI, false);
+    
+    try {
+      // Get all TicketListed events
+      const filter = contract.filters.TicketListed();
+      const events = await contract.queryFilter(filter, -10000); // Last 10k blocks
+      
+      const activeListings = [];
+      
+      for (const event of events) {
+        const { contractAddr, tokenId, seller, price } = event.args;
+        
+        // Check if listing is still active
+        const currentListing = await this.getResaleListing(contractAddr, Number(tokenId));
+        
+        if (currentListing && currentListing.seller === seller) {
+          activeListings.push({
+            ticketContract: contractAddr,
+            tokenId: Number(tokenId),
+            seller,
+            price: ethers.formatEther(price)
+          });
+        }
+      }
+      
+      return activeListings;
+    } catch (error) {
+      console.error('Error getting active resale listings:', error);
+      return [];
+    }
+  }
+
+  // Get enriched resale listings with event and ticket information
+  async getEnrichedResaleListings(): Promise<ResaleListingInfo[]> {
+    try {
+      const basicListings = await this.getActiveResaleListings();
+      const enrichedListings: ResaleListingInfo[] = [];
+      
+      for (const listing of basicListings) {
+        try {
+          // Get ticket info
+          const ticketContract = await this.getContract(listing.ticketContract, TICKET_NFT_ABI, false);
+          const tokenURI = await ticketContract.tokenURI(listing.tokenId);
+          const ticketInfo = await ticketContract.getTicketInfo(listing.tokenId);
+          
+          // Try to get event information by looking up which event this ticket contract belongs to
+          let eventInfo: EventData | undefined;
+          try {
+            // This is a simplified approach - in practice you might need to store this mapping
+            const factoryContract = await this.getContract(CONTRACT_ADDRESSES.TICKET_FACTORY, TICKET_FACTORY_ABI, false);
+            const eventCounter = await factoryContract.eventCounter();
+            
+            // Search through events to find the one with this ticket contract
+            for (let eventId = 1; eventId <= Number(eventCounter); eventId++) {
+              try {
+                const event = await this.getEvent(eventId);
+                if (event.ticketContract.toLowerCase() === listing.ticketContract.toLowerCase()) {
+                  eventInfo = event;
+                  break;
+                }
+              } catch (error) {
+                // Continue searching
+                continue;
+              }
+            }
+          } catch (error) {
+            console.warn('Could not fetch event info for ticket contract:', listing.ticketContract);
+          }
+          
+          const nftTicketInfo: NFTTicketInfo = {
+            tokenId: listing.tokenId,
+            owner: listing.seller,
+            tokenURI,
+            eventContract: listing.ticketContract,
+            ticketInfo: {
+              ticketTypeId: Number(ticketInfo.ticketTypeId),
+              price: ethers.formatEther(ticketInfo.price),
+              mintTimestamp: Number(ticketInfo.mintTimestamp),
+              isValidated: ticketInfo.isValidated,
+              isUsed: ticketInfo.isUsed
+            }
+          };
+          
+          enrichedListings.push({
+            ticketContract: listing.ticketContract,
+            tokenId: listing.tokenId,
+            seller: listing.seller,
+            price: listing.price,
+            eventInfo,
+            ticketInfo: nftTicketInfo
+          });
+        } catch (error) {
+          console.error('Error enriching listing:', listing, error);
+          // Add basic listing without enrichment
+          enrichedListings.push({
+            ticketContract: listing.ticketContract,
+            tokenId: listing.tokenId,
+            seller: listing.seller,
+            price: listing.price
+          });
+        }
+      }
+      
+      return enrichedListings;
+    } catch (error) {
+      console.error('Error getting enriched resale listings:', error);
+      return [];
+    }
+  }
 }
 
 // Create singleton instance
@@ -874,5 +1146,6 @@ export default {
   contractUtils,
   TICKET_FACTORY_ABI,
   TICKET_NFT_ABI,
+  RESALE_MARKETPLACE_ABI,
   CONTRACT_ADDRESSES
 };
