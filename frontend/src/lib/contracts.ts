@@ -94,9 +94,13 @@ export interface NFTTicketInfo {
   eventContract: string;
   ticketInfo: TicketInfo;
   dbTicketId?: string; // Database ticket ID for creating resale listings
+  dbTicket?: any; // Full database ticket info for seat category
+  isListed?: boolean; // Whether ticket is listed for resale
+  listingPrice?: string | null; // Resale listing price if listed
 }
 
 export interface ResaleListingInfo {
+  id?: string; // Database listing ID for updates
   ticketContract: string;
   tokenId: number;
   seller: string;
@@ -429,6 +433,17 @@ export class ContractService {
         console.log(`Contract eventCounter: ${eventCounter}`);
         
         if (eventId > Number(eventCounter)) {
+          // Event doesn't exist - log all available events for debugging
+          console.log(`❌ Event ${eventId} does not exist. Current event count: ${eventCounter}`);
+          try {
+            console.log('📋 Available events:');
+            const events = await this.getAllEvents();
+            events.forEach(event => {
+              console.log(`  - Event #${event.id}: ${event.name}`);
+            });
+          } catch (logError) {
+            console.error('Failed to fetch available events:', logError);
+          }
           throw new Error(`Event ${eventId} does not exist. Current event count: ${eventCounter}`);
         }
       } catch (counterError: any) {

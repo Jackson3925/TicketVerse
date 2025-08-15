@@ -1350,6 +1350,136 @@ export const resaleAPI = {
     }
     
     return data
+  },
+
+  // Transfer ticket ownership after resale purchase
+  async transferTicketOwnership(ticketId: string, newOwnerWalletAddress: string): Promise<{
+    ticket: Ticket,
+    newOwnerId: string
+  }> {
+    // First, find or create a buyer account for the wallet address
+    let newOwnerId: string;
+    
+    // Check if buyer with this wallet address already exists
+    const { data: existingBuyer, error: buyerCheckError } = await supabase
+      .from('buyers')
+      .select('id')
+      .eq('wallet_address', newOwnerWalletAddress)
+      .single()
+    
+    if (existingBuyer) {
+      newOwnerId = existingBuyer.id;
+      console.log('Found existing buyer for wallet:', newOwnerWalletAddress, 'User ID:', newOwnerId);
+    } else {
+      // Create a new user account first
+      const { data: newUser, error: createUserError } = await supabase
+        .from('users')
+        .insert({
+          user_type: 'buyer',
+          display_name: `User ${newOwnerWalletAddress.slice(0, 6)}...${newOwnerWalletAddress.slice(-4)}`,
+          email: `${newOwnerWalletAddress.toLowerCase()}@wallet.local` // Placeholder email
+        })
+        .select('id')
+        .single()
+      
+      if (createUserError) {
+        console.error('Error creating user for wallet transfer:', createUserError);
+        throw new Error(`Failed to create user account for wallet ${newOwnerWalletAddress}`);
+      }
+      
+      newOwnerId = newUser.id;
+      console.log('Created new user for wallet:', newOwnerWalletAddress, 'User ID:', newOwnerId);
+      
+      // Create buyer profile with wallet address
+      const { error: createBuyerError } = await supabase
+        .from('buyers')
+        .insert({ 
+          id: newOwnerId,
+          wallet_address: newOwnerWalletAddress
+        })
+        .single()
+      
+      if (createBuyerError) {
+        console.error('Error creating buyer profile:', createBuyerError);
+        throw new Error(`Failed to create buyer profile for wallet ${newOwnerWalletAddress}`);
+      }
+      
+      console.log('Created buyer profile with wallet address');
+    }
+    
+    // Now transfer the ticket ownership
+    const { data: updatedTicket, error: transferError } = await supabase
+      .from('tickets')
+      .update({ 
+        owner_id: newOwnerId,
+        transferred_at: new Date().toISOString()
+      })
+      .eq('id', ticketId)
+      .select()
+      .single()
+    
+    if (transferError) {
+      console.error('Error transferring ticket ownership:', transferError);
+      throw new Error('Failed to transfer ticket ownership in database');
+    }
+    
+    console.log('Ticket ownership transferred:', {
+      ticketId,
+      newOwnerId,
+      walletAddress: newOwnerWalletAddress
+    });
+    
+    return {
+      ticket: updatedTicket,
+      newOwnerId
+    }
+  },
+
+  // Get ticket ID from resale listing ID
+  async getTicketIdFromListing(listingId: string): Promise<string | null> {
+    const { data, error } = await supabase
+      .from('resale_listings')
+      .select('ticket_id')
+      .eq('id', listingId)
+      .single()
+    
+    if (error) {
+      console.error('Error getting ticket ID from listing:', error);
+      return null;
+    }
+    
+    return data?.ticket_id || null;
+  },
+
+  // Find database listing by event ID and token ID
+  async findListingByEventAndToken(eventId: string, tokenId: number): Promise<string | null> {
+    // Find the ticket in the database that matches this event and token ID
+    const { data: ticket, error: ticketError } = await supabase
+      .from('tickets')
+      .select('id')
+      .eq('event_id', eventId)
+      .eq('token_id', tokenId)
+      .single()
+    
+    if (ticketError || !ticket) {
+      console.error('Error finding ticket by event and token ID:', ticketError);
+      return null;
+    }
+    
+    // Find active resale listing for this specific ticket
+    const { data: listing, error: listingError } = await supabase
+      .from('resale_listings')
+      .select('id')
+      .eq('ticket_id', ticket.id)
+      .eq('status', 'active')
+      .single()
+    
+    if (listingError || !listing) {
+      console.warn(`No active listing found for event ${eventId} token ${tokenId}`);
+      return null;
+    }
+    
+    return listing.id;
   }
 }
 

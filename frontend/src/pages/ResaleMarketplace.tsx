@@ -53,7 +53,38 @@ const ResaleMarketplace = () => {
       setLoading(true);
       setError(null);
       const resaleListings = await contractService.getEnrichedResaleListings();
-      setListings(resaleListings);
+      
+      // Debug: Log all listings to see duplicates
+      console.log('📋 All resale listings loaded:', resaleListings.length);
+      resaleListings.forEach((listing, index) => {
+        console.log(`📋 Listing ${index + 1}:`, {
+          tokenId: listing.tokenId,
+          ticketContract: listing.ticketContract,
+          seller: listing.seller,
+          price: listing.price,
+          eventName: listing.eventInfo?.name
+        });
+      });
+      
+      // Check for duplicates and remove them
+      const uniqueListings = resaleListings.reduce((acc, listing) => {
+        const key = `${listing.ticketContract}-${listing.tokenId}`;
+        
+        // If we haven't seen this listing before, add it
+        if (!acc.some(existing => 
+          existing.ticketContract === listing.ticketContract && 
+          existing.tokenId === listing.tokenId
+        )) {
+          acc.push(listing);
+        } else {
+          console.warn('🚨 DUPLICATE LISTING REMOVED:', key);
+        }
+        
+        return acc;
+      }, [] as typeof resaleListings);
+      
+      console.log('📋 Unique listings after deduplication:', uniqueListings.length);
+      setListings(uniqueListings);
     } catch (err: any) {
       console.error('Error loading resale listings:', err);
       setError(err.message || 'Failed to load resale listings');
@@ -95,10 +126,14 @@ const ResaleMarketplace = () => {
           const ticketContractAddress = contractEvent.ticketContract;
           
           // Verify ownership on blockchain (single targeted call)
+          console.log(`Checking ownership for token ${dbTicket.token_id} at contract ${ticketContractAddress}`);
           const owner = await contractService.checkTicketOwnership(
             ticketContractAddress, 
             dbTicket.token_id
           );
+          console.log(`Token ${dbTicket.token_id} owner:`, owner);
+          console.log(`Wallet address:`, wallet.address);
+          console.log(`Ownership match:`, owner.toLowerCase() === wallet.address.toLowerCase());
           
           // Only include if user still owns the ticket
           if (owner.toLowerCase() === wallet.address.toLowerCase()) {
@@ -107,6 +142,12 @@ const ResaleMarketplace = () => {
             const contract = await contractService.getContract(ticketContractAddress, TICKET_NFT_ABI, false);
             const tokenURI = await contract.tokenURI(dbTicket.token_id);
             const ticketInfo = await contract.getTicketInfo(dbTicket.token_id);
+
+            // Check if this ticket is currently listed for resale
+            const resaleListing = await contractService.getResaleListing(
+              ticketContractAddress,
+              dbTicket.token_id
+            );
 
             userTickets.push({
               tokenId: dbTicket.token_id,
@@ -120,11 +161,16 @@ const ResaleMarketplace = () => {
                 isValidated: ticketInfo.isValidated,
                 isUsed: ticketInfo.isUsed
               },
-              dbTicketId: dbTicket.id // Add database ticket ID
+              dbTicketId: dbTicket.id, // Add database ticket ID
+              dbTicket: dbTicket, // Add full database ticket info for seat category
+              isListed: !!resaleListing, // Add listing status
+              listingPrice: resaleListing?.price || null // Add listing price if available
             });
           }
         } catch (error) {
-          console.warn('Error verifying ticket ownership for token:', dbTicket.token_id, error);
+          console.error('Error verifying ticket ownership for token:', dbTicket.token_id, 'Error:', error);
+          console.error('Event ID:', dbTicket.event_id);
+          console.error('Contract Event ID:', event?.contract_event_id);
           // Skip this ticket if verification fails
         }
       }
@@ -240,13 +286,89 @@ const ResaleMarketplace = () => {
         listing.price
       );
       
-      // Update database status
+      // Update database status and transfer ownership
       try {
-        const { resaleAPI } = await import('@/lib/api');
-        await resaleAPI.updateResaleListingStatus(listing.id, 'sold');
-        console.log('Database listing status updated to sold');
+        const { resaleAPI, eventsAPI } = await import('@/lib/api');
+        const { supabase } = await import('@/lib/supabase');
+        
+        console.log('🔍 DEBUG: Starting database lookup for listing:', {
+          tokenId: listing.tokenId,
+          contractEventId: listing.eventInfo?.id,
+          ticketContract: listing.ticketContract,
+          seller: listing.seller
+        });
+
+        // Get the database event ID from the contract event ID
+        let dbEventId: string | null = null;
+        if (listing.eventInfo?.id) {
+          console.log('🔍 Step 1: Looking for database event with contract_event_id:', listing.eventInfo.id);
+          
+          const { data: events, error: eventError } = await supabase
+            .from('events')
+            .select('id, title, contract_event_id')
+            .eq('contract_event_id', listing.eventInfo.id)
+            .single()
+          
+          console.log('🔍 Step 1 Result:', { data: events, error: eventError });
+          
+          if (events && !eventError) {
+            dbEventId = events.id;
+            console.log('✅ Found database event ID:', dbEventId);
+          } else {
+            console.error('❌ Failed to find database event:', eventError);
+          }
+        } else {
+          console.error('❌ No contract event ID in listing.eventInfo');
+        }
+        
+        if (dbEventId) {
+          console.log('🔍 Step 2: Looking for ticket with event_id:', dbEventId, 'token_id:', listing.tokenId);
+          
+          // Let's check the ticket first manually
+          const { data: debugTicket, error: debugTicketError } = await supabase
+            .from('tickets')
+            .select('id, event_id, token_id, owner_id')
+            .eq('event_id', dbEventId)
+            .eq('token_id', listing.tokenId)
+            .single()
+          
+          console.log('🔍 Direct ticket lookup:', { data: debugTicket, error: debugTicketError });
+          
+          if (debugTicket) {
+            // Now check if there's a resale listing for this ticket
+            const { data: debugListing, error: debugListingError } = await supabase
+              .from('resale_listings')
+              .select('id, ticket_id, status, seller_id')
+              .eq('ticket_id', debugTicket.id)
+              .eq('status', 'active')
+              .single()
+            
+            console.log('🔍 Direct listing lookup:', { data: debugListing, error: debugListingError });
+            
+            if (debugListing) {
+              // Use the found listing ID
+              const dbListingId = debugListing.id;
+              console.log('✅ Found database listing ID:', dbListingId);
+              
+              // Mark the listing as sold
+              await resaleAPI.updateResaleListingStatus(dbListingId, 'sold');
+              console.log('✅ Database listing status updated to sold');
+              
+              // Transfer ownership
+              await resaleAPI.transferTicketOwnership(debugTicket.id, wallet.address);
+              console.log('✅ Ticket ownership transferred to buyer');
+            } else {
+              console.error('❌ No active resale listing found for ticket:', debugTicket.id);
+            }
+          } else {
+            console.error('❌ No ticket found for event_id:', dbEventId, 'token_id:', listing.tokenId);
+          }
+        } else {
+          console.error('❌ Could not find database event for contract event ID:', listing.eventInfo?.id);
+        }
+        
       } catch (dbError) {
-        console.error('Failed to update database listing status:', dbError);
+        console.error('Failed to update database after purchase:', dbError);
         toast({
           title: "Warning",
           description: "Purchase succeeded but database sync failed.",
@@ -431,20 +553,32 @@ const ResaleMarketplace = () => {
                 </div>
               ) : userTickets.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {userTickets.map((ticket) => (
-                    <Card key={`${ticket.eventContract}-${ticket.tokenId}`} className="border">
+                  {userTickets.map((ticket, index) => (
+                    <Card key={`my-ticket-${ticket.eventContract}-${ticket.tokenId}-${ticket.dbTicketId || index}`} className="border">
                       <CardContent className="p-4">
                         <div className="space-y-3">
                           <div className="flex justify-between items-start">
                             <div>
                               <h3 className="font-medium">Ticket #{ticket.tokenId}</h3>
                               <p className="text-sm text-muted-foreground">
-                                Type ID: {ticket.ticketInfo.ticketTypeId}
+                                {ticket.dbTicket?.seat_categories?.name || `Type ID: ${ticket.ticketInfo.ticketTypeId}`}
                               </p>
+                              {ticket.dbTicket?.seat_row && ticket.dbTicket?.seat_number && (
+                                <p className="text-xs text-muted-foreground">
+                                  Row {ticket.dbTicket.seat_row}, Seat {ticket.dbTicket.seat_number}
+                                </p>
+                              )}
                             </div>
-                            <Badge variant={ticket.ticketInfo.isUsed ? "secondary" : "default"}>
-                              {ticket.ticketInfo.isUsed ? "Used" : "Active"}
-                            </Badge>
+                            <div className="flex flex-col gap-1">
+                              <Badge variant={ticket.ticketInfo.isUsed ? "secondary" : "default"}>
+                                {ticket.ticketInfo.isUsed ? "Used" : "Active"}
+                              </Badge>
+                              {ticket.isListed && (
+                                <Badge variant="outline" className="text-orange-600 border-orange-200">
+                                  Listed
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                           
                           <div className="text-sm space-y-1">
@@ -452,6 +586,12 @@ const ResaleMarketplace = () => {
                               <span className="text-muted-foreground">Original Price:</span>
                               <span>{ticket.ticketInfo.price} ETH</span>
                             </div>
+                            {ticket.isListed && ticket.listingPrice && (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Listed Price:</span>
+                                <span className="text-orange-600 font-medium">{ticket.listingPrice} ETH</span>
+                              </div>
+                            )}
                             <div className="flex justify-between">
                               <span className="text-muted-foreground">Contract:</span>
                               <code className="text-xs">
@@ -533,9 +673,9 @@ const ResaleMarketplace = () => {
                     </div>
                   ) : userListings.length > 0 ? (
                     <div className="grid gap-4">
-                      {userListings.map((listing) => (
+                      {userListings.map((listing, index) => (
                         <div
-                          key={`${listing.ticketContract}-${listing.tokenId}`}
+                          key={`my-listing-${listing.ticketContract}-${listing.tokenId}-${listing.eventInfo?.id || index}`}
                           className="border rounded-lg p-4 flex justify-between items-center"
                         >
                           <div className="flex-1">
@@ -625,8 +765,8 @@ const ResaleMarketplace = () => {
           </div>
         ) : filteredTickets.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredTickets.map((listing) => (
-              <Card key={getTicketId(listing)} className="overflow-hidden hover:shadow-lg transition-all duration-300 hover:scale-105 group">
+            {filteredTickets.map((listing, index) => (
+              <Card key={`marketplace-${listing.ticketContract}-${listing.tokenId}-${listing.eventInfo?.id || index}`} className="overflow-hidden hover:shadow-lg transition-all duration-300 hover:scale-105 group">
                 <div className="relative">
                   <div className="w-full h-48 bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center">
                     <div className="text-center">
