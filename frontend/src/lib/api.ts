@@ -30,6 +30,7 @@ export const eventsAPI = {
     search?: string
     limit?: number
     offset?: number
+    includePastEvents?: boolean // Optional flag to include past events
   }): Promise<EventWithRelations[]> {
     let query = supabase
       .from('events')
@@ -40,7 +41,19 @@ export const eventsAPI = {
         seat_categories(id, name, price, capacity, sold)
       `)
       .eq('status', 'active')
-      .order('date', { ascending: true })
+    
+    // Filter out past events by default
+    if (!filters?.includePastEvents) {
+      // For more precise filtering, combine date and time
+      const now = new Date()
+      const currentDate = now.toISOString().split('T')[0] // YYYY-MM-DD
+      const currentTime = now.toTimeString().split(' ')[0] // HH:MM:SS
+      
+      // Filter events: either future dates, or today but with future time
+      query = query.or(`date.gt.${currentDate},and(date.eq.${currentDate},time.gte.${currentTime})`)
+    }
+    
+    query = query.order('date', { ascending: true })
 
     // Apply filters
     if (filters?.category) {
@@ -71,6 +84,11 @@ export const eventsAPI = {
 
   // Get featured events for homepage
   async getFeaturedEvents(): Promise<EventWithRelations[]> {
+    // For more precise filtering, combine date and time
+    const now = new Date()
+    const currentDate = now.toISOString().split('T')[0] // YYYY-MM-DD
+    const currentTime = now.toTimeString().split(' ')[0] // HH:MM:SS
+    
     const { data, error } = await supabase
       .from('events')
       .select(`
@@ -81,6 +99,8 @@ export const eventsAPI = {
       `)
       .eq('is_featured', true)
       .eq('status', 'active')
+      // Filter events: either future dates, or today but with future time
+      .or(`date.gt.${currentDate},and(date.eq.${currentDate},time.gte.${currentTime})`)
       .order('date', { ascending: true })
       .limit(6)
 
@@ -111,6 +131,39 @@ export const eventsAPI = {
     }
     
     return data
+  },
+
+  // Get past events (for admin/analytics purposes)
+  async getPastEvents(limit?: number): Promise<EventWithRelations[]> {
+    const now = new Date()
+    const currentDate = now.toISOString().split('T')[0]
+    const currentTime = now.toTimeString().split(' ')[0]
+
+    let query = supabase
+      .from('events')
+      .select(`
+        *,
+        artists(id, name, genre, image_url, verified),
+        venues(id, name, address, city, state, country),
+        seat_categories(id, name, price, capacity, sold)
+      `)
+      .eq('status', 'active')
+      // Filter past events: either past dates, or today but with past time
+      .or(`date.lt.${currentDate},and(date.eq.${currentDate},time.lt.${currentTime})`)
+      .order('date', { ascending: false }) // Most recent first
+
+    if (limit) {
+      query = query.limit(limit)
+    }
+
+    const { data, error } = await query
+    
+    if (error) {
+      console.error('Error fetching past events:', error)
+      throw error
+    }
+    
+    return data || []
   },
 
   // Create new event (for sellers) with smart contract integration
