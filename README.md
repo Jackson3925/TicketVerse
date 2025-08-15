@@ -8,23 +8,67 @@ A decentralized concert ticket platform that uses blockchain technology to creat
 - **Node.js** (v18 or higher)
 - **MetaMask** browser extension
 - **Sepolia ETH** (for testing)
+- **Supabase Account** (for web2 data storage)
+- **Supabase CLI** (for schema migration)
+- **Pinata Account** (for storing NFT images on IPFS)
 
 ### Quick Start
 
-1. **Clone and Install**
+1. **Install Dependencies**
 ```bash
-git clone https://github.com/your-username/Blockchain-concertPlatform.git
 cd Blockchain-concertPlatform/frontend
 npm install
 ```
 
-2. **Start the Application**
+2. **Configure Environment Variables**
+- Create a `.env.local` file in the `/Blockchain-concertPlatform/frontend` directory
+- replace `your_supabase_url`, `your_public_anon_key`, `https://your_rpc_url`, `your_pinata_jwt`, `your_gateway`
 ```bash
+# Supabase Configuration
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_public_anon_key
+
+# Contract Addresses
+VITE_TICKET_NFT_IMPLEMENTATION_ADDRESS=0xb9a8b6C3313907e4C5A626cDBCB04c593747cfcB
+VITE_TICKET_FACTORY_ADDRESS=0x2Cb5D511E3617d140F0d388409e43E74f74D555b
+VITE_RESALE_MARKETPLACE_ADDRESS=0x83217bb9f432625Bd9C98107109231ea334cE8CA
+
+# Network and RPC
+VITE_CHAIN_ID=11155111
+VITE_CHAIN_NAME="Sepolia"
+VITE_RPC_URL=https://your_rpc_url
+
+# Pinata IPFS Configuration
+VITE_PINATA_JWT=your_pinata_jwt
+VITE_PINATA_GATEWAY=your_gateway
+
+# QR Code Security Configuration
+VITE_QR_SECRET_KEY=concert-platform-qr-secret-2025-blockchain-tickets
+VITE_SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBwbXNmanpnaGZqdGJiemVvZ3VwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MDc4Njc4MiwiZXhwIjoyMDY2MzYyNzgyfQ.0k-24neE6vcfXwEesHg_R5XIwQfZ3ZlvbdZ1B6ZCIi4
+```
+
+3. **Import Supabase Schema**
+- Replace `<project-ref>` with your Supabase project ID
+- Import the `supabase_schema.sql` into your Supabase project
+```bash
+# Log in to Supabase CLI (only needed once)
+supabase login
+
+# Link to your project
+supabase link --project-ref <project-ref>
+
+# Push schema to your Supabase project
+psql "$SUPABASE_DB_URL" < supabase_schema.sql
+```
+
+4. **Start the Application**
+```bash
+cd frontend/
 npm run dev
 ```
 
-3. **Access the Platform**
-- Open http://localhost:5173 in your browser
+5. **Access the Platform**
+- Open http://localhost:8080 in your browser
 - Connect your MetaMask wallet
 - Switch to Sepolia testnet
 
