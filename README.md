@@ -1,4 +1,4 @@
-# Blockchain Concert Platform
+# TicketVerse
 
 A decentralized concert ticket platform that uses blockchain technology to create secure, verifiable tickets as NFTs. Users can purchase tickets, verify authenticity, and trade on a secure marketplace.
 
