@@ -24,6 +24,14 @@ export const useRealtimeEvents = (filters?: {
         .eq('status', 'active')
         .order('date', { ascending: true })
 
+      // Filter out past events by default
+      const now = new Date()
+      const currentDate = now.toISOString().split('T')[0] // YYYY-MM-DD
+      const currentTime = now.toTimeString().split(' ')[0] // HH:MM:SS
+      
+      // Filter events: either future dates, or today but with future time
+      query = query.or(`date.gt.${currentDate},and(date.eq.${currentDate},time.gte.${currentTime})`)
+
       if (filters?.category) {
         query = query.eq('category', filters.category)
       }
@@ -52,6 +60,21 @@ export const useRealtimeEvents = (filters?: {
   useEffect(() => {
     loadEvents()
 
+    // Set up periodic cleanup of past events (every 5 minutes)
+    const cleanupInterval = setInterval(() => {
+      setEvents(prev => {
+        const now = new Date()
+        const currentDate = now.toISOString().split('T')[0]
+        const currentTime = now.toTimeString().split(' ')[0]
+        
+        return prev.filter(event => {
+          const eventTime = event.time || '00:00:00'
+          return event.date > currentDate || 
+                 (event.date === currentDate && eventTime >= currentTime)
+        })
+      })
+    }, 5 * 60 * 1000) // 5 minutes
+
     // Subscribe to real-time changes
     const subscription = supabase
       .channel('events_changes')
@@ -65,9 +88,20 @@ export const useRealtimeEvents = (filters?: {
         (payload) => {
           console.log('Events change received:', payload)
 
+          // Helper function to check if event is not past
+          const isEventNotPast = (event: Event) => {
+            const now = new Date()
+            const currentDate = now.toISOString().split('T')[0]
+            const currentTime = now.toTimeString().split(' ')[0]
+            const eventTime = event.time || '00:00:00'
+            
+            return event.date > currentDate || 
+                   (event.date === currentDate && eventTime >= currentTime)
+          }
+
           if (payload.eventType === 'INSERT') {
             const newEvent = payload.new as Event
-            if (newEvent.status === 'active') {
+            if (newEvent.status === 'active' && isEventNotPast(newEvent)) {
               setEvents(prev => {
                 // Check if event already exists
                 if (prev.some(e => e.id === newEvent.id)) return prev
@@ -78,9 +112,14 @@ export const useRealtimeEvents = (filters?: {
             }
           } else if (payload.eventType === 'UPDATE') {
             const updatedEvent = payload.new as Event
-            setEvents(prev => prev.map(event => 
-              event.id === updatedEvent.id ? updatedEvent : event
-            ))
+            if (updatedEvent.status === 'active' && isEventNotPast(updatedEvent)) {
+              setEvents(prev => prev.map(event => 
+                event.id === updatedEvent.id ? updatedEvent : event
+              ))
+            } else {
+              // Remove event if it becomes past or inactive
+              setEvents(prev => prev.filter(event => event.id !== updatedEvent.id))
+            }
           } else if (payload.eventType === 'DELETE') {
             const deletedEvent = payload.old as Event
             setEvents(prev => prev.filter(event => event.id !== deletedEvent.id))
@@ -91,6 +130,7 @@ export const useRealtimeEvents = (filters?: {
 
     return () => {
       subscription.unsubscribe()
+      clearInterval(cleanupInterval)
     }
   }, [loadEvents])
 

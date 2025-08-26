@@ -69,12 +69,27 @@ const BrowseEvents = () => {
     loadInitialData();
   }, []);
 
+  // Helper function to filter past events
+  const filterPastEvents = useCallback((events: EventWithRelations[]) => {
+    const now = new Date()
+    const currentDate = now.toISOString().split('T')[0]
+    const currentTime = now.toTimeString().split(' ')[0]
+    
+    return events.filter(event => {
+      const eventTime = event.time || '00:00:00'
+      return event.date > currentDate || 
+             (event.date === currentDate && eventTime >= currentTime)
+    })
+  }, [])
+
   // Update events when real-time data changes
   useEffect(() => {
     if (realtimeEvents.length > 0) {
-      setEvents(realtimeEvents);
+      // Apply the same past event filtering to real-time data
+      const filteredRealtimeEvents = filterPastEvents(realtimeEvents)
+      setEvents(filteredRealtimeEvents);
     }
-  }, [realtimeEvents]);
+  }, [realtimeEvents, filterPastEvents]);
 
   // Filter and search events
   const filteredEvents = useCallback(() => {

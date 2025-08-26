@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { eventsAPI } from '@/lib/api'
 import { useRealtimeEvents } from '@/hooks/useRealtimeEvents'
 import Navigation from "@/components/Navigation";
@@ -43,19 +43,35 @@ const Index = () => {
     loadData()
   }, [])
 
+  // Helper function to filter past events
+  const filterPastEvents = useCallback((events) => {
+    const now = new Date()
+    const currentDate = now.toISOString().split('T')[0]
+    const currentTime = now.toTimeString().split(' ')[0]
+    
+    return events.filter(event => {
+      const eventTime = event.time || '00:00:00'
+      return event.date > currentDate || 
+             (event.date === currentDate && eventTime >= currentTime)
+    })
+  }, [])
+
   // Update events when real-time data changes
   useEffect(() => {
     if (realtimeEvents.length > 0) {
-      // Update upcoming events with real-time data
-      setUpcomingEvents(realtimeEvents.slice(0, 8))
+      // Apply the same past event filtering to real-time data
+      const filteredRealtimeEvents = filterPastEvents(realtimeEvents)
       
-      // Update featured events if they exist in real-time data
-      const featuredFromRealtime = realtimeEvents.filter(event => event.is_featured).slice(0, 6)
+      // Update upcoming events with filtered real-time data
+      setUpcomingEvents(filteredRealtimeEvents.slice(0, 8))
+      
+      // Update featured events if they exist in filtered real-time data
+      const featuredFromRealtime = filteredRealtimeEvents.filter(event => event.is_featured).slice(0, 6)
       if (featuredFromRealtime.length > 0) {
         setFeaturedEvents(featuredFromRealtime)
       }
     }
-  }, [realtimeEvents])
+  }, [realtimeEvents, filterPastEvents])
 
   if (loading) {
     return (
