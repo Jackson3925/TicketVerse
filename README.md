@@ -16,12 +16,12 @@ A decentralized concert ticket platform that uses blockchain technology to creat
 
 1. **Install Dependencies**
 ```bash
-cd Blockchain-concertPlatform/frontend
+cd TicketVerse/frontend
 npm install
 ```
 
 2. **Configure Environment Variables**
-- Create a `.env.local` file in the `Blockchain-concertPlatform/frontend` directory
+- Create a `.env.local` file in the `TicketVerse/frontend` directory
 - replace `your_supabase_url` with Supabase URL
 - replace `your_public_anon_key` with Supabase Anon Key
 - replace `https://your_rpc_url` with public/private RPC
