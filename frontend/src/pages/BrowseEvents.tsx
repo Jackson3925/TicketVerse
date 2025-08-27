@@ -1,6 +1,7 @@
 
 import { useState, useEffect, useCallback } from "react";
-import { eventsAPI, utilsAPI } from '@/lib/api';
+import { useSearchParams } from "react-router-dom";
+import { eventsAPI, utilsAPI, artistsAPI } from '@/lib/api';
 import { useRealtimeEvents } from '@/hooks/useRealtimeEvents';
 import Navigation from "@/components/Navigation";
 import EventCard from "@/components/EventCard";
@@ -8,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Filter, MapPin, Calendar } from "lucide-react";
+import { Search, Filter, MapPin, Calendar, Music } from "lucide-react";
 import type { Event } from '@/lib/supabase';
 
 type EventWithRelations = Event & {
@@ -18,6 +19,7 @@ type EventWithRelations = Event & {
 }
 
 const BrowseEvents = () => {
+  const [searchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedGenre, setSelectedGenre] = useState("all");
   const [selectedLocation, setSelectedLocation] = useState("all");
@@ -27,9 +29,33 @@ const BrowseEvents = () => {
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
   const [locations, setLocations] = useState<string[]>([]);
+  const [selectedArtistId, setSelectedArtistId] = useState<string | null>(null);
+  const [selectedArtistName, setSelectedArtistName] = useState<string | null>(null);
 
   // Use real-time events hook for live updates
   const { events: realtimeEvents } = useRealtimeEvents();
+
+  // Handle URL parameters for artist filtering
+  useEffect(() => {
+    const artistId = searchParams.get('artist');
+    if (artistId) {
+      setSelectedArtistId(artistId);
+      
+      // Fetch artist name for display
+      const fetchArtistName = async () => {
+        try {
+          const artist = await artistsAPI.getArtistById(artistId);
+          if (artist) {
+            setSelectedArtistName(artist.name);
+          }
+        } catch (error) {
+          console.error('Error fetching artist:', error);
+        }
+      };
+      
+      fetchArtistName();
+    }
+  }, [searchParams]);
 
   // Load initial data
   useEffect(() => {
@@ -110,7 +136,10 @@ const BrowseEvents = () => {
         : event.venues?.city;
       const matchesLocation = selectedLocation === "all" || eventLocation === selectedLocation;
 
-      return matchesSearch && matchesGenre && matchesLocation;
+      // Artist filter (filter by artist ID if specified in URL)
+      const matchesArtist = !selectedArtistId || event.artist_id === selectedArtistId;
+
+      return matchesSearch && matchesGenre && matchesLocation && matchesArtist;
     });
 
     // Sort events
@@ -133,7 +162,7 @@ const BrowseEvents = () => {
     }
 
     return filtered;
-  }, [events, searchQuery, selectedGenre, selectedLocation, sortBy]);
+  }, [events, searchQuery, selectedGenre, selectedLocation, sortBy, selectedArtistId]);
 
   const displayEvents = filteredEvents();
 
@@ -178,9 +207,31 @@ const BrowseEvents = () => {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-4xl font-bold mb-2">Browse Events</h1>
-          <p className="text-muted-foreground">
-            Discover amazing concerts and events • {displayEvents.length} events found
-          </p>
+          <div className="flex flex-col gap-2">
+            <p className="text-muted-foreground">
+              Discover amazing concerts and events • {displayEvents.length} events found
+            </p>
+            {selectedArtistName && (
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" className="bg-primary/10 text-primary">
+                  <Music className="h-3 w-3 mr-1" />
+                  Filtered by: {selectedArtistName}
+                </Badge>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => {
+                    setSelectedArtistId(null);
+                    setSelectedArtistName(null);
+                    window.history.replaceState({}, '', '/browse-events');
+                  }}
+                  className="h-6 text-xs"
+                >
+                  ✕ Clear filter
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Search and Filters */}

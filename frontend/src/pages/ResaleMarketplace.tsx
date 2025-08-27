@@ -163,6 +163,7 @@ const ResaleMarketplace = () => {
               },
               dbTicketId: dbTicket.id, // Add database ticket ID
               dbTicket: dbTicket, // Add full database ticket info for seat category
+              eventInfo: event, // Add database event information
               isListed: !!resaleListing, // Add listing status
               listingPrice: resaleListing?.price || null // Add listing price if available
             });
@@ -559,9 +560,9 @@ const ResaleMarketplace = () => {
                         <div className="space-y-3">
                           <div className="flex justify-between items-start">
                             <div>
-                              <h3 className="font-medium">Ticket #{ticket.tokenId}</h3>
+                              <h3 className="font-medium">{ticket.eventInfo?.title || 'Unknown Event'}</h3>
                               <p className="text-sm text-muted-foreground">
-                                {ticket.dbTicket?.seat_categories?.name || `Type ID: ${ticket.ticketInfo.ticketTypeId}`}
+                                Ticket #{ticket.tokenId} • {ticket.dbTicket?.seat_categories?.name || `Type ID: ${ticket.ticketInfo.ticketTypeId}`}
                               </p>
                               {ticket.dbTicket?.seat_row && ticket.dbTicket?.seat_number && (
                                 <p className="text-xs text-muted-foreground">
